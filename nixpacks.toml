@@ -1,0 +1,8 @@
+[install]
+cmds = ["npm install --package-lock=false"]
+
+[build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npx serve -s build"
