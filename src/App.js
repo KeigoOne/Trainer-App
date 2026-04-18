@@ -1,88 +1,7 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 
-
-
-// ── Sync diff to Supabase: upsert changed/added, delete removed ──
-async function syncToSupabase(prev, next, userId) {
-  const prevMap = Object.fromEntries(prev.map(c => [c.id, c]));
-  const nextMap = Object.fromEntries(next.map(c => [c.id, c]));
-
-  // Delete removed clients
-  for (const id of Object.keys(prevMap)) {
-    if (!nextMap[id]) {
-      await supabase.from("clients").delete().eq("id", id).eq("user_id", userId);
-    }
-  }
-
-  // Upsert added or changed clients
-  for (const client of next) {
-    const prev = prevMap[client.id];
-    if (!prev || JSON.stringify(prev) !== JSON.stringify(client)) {
-      await supabase.from("clients").upsert({ id: client.id, user_id: userId, data: client });
-    }
-  }
-}
-
-function useStorage(user) {
-  const [clients, setClientsState] = useState([]);
-  const [dbLoading, setDbLoading] = useState(true);
-
-  // Load from Supabase on mount
-  useEffect(() => {
-    if (!user) return;
-    supabase
-      .from("clients")
-      .select("data")
-      .eq("user_id", user.id)
-      .then(({ data, error }) => {
-        if (data) setClientsState(data.map(r => r.data));
-        setDbLoading(false);
-      });
-  }, [user]);
-
-  const setClients = useCallback((updater) => {
-    setClientsState((prev) => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      if (user) syncToSupabase(prev, next, user.id);
-      return next;
-    });
-  }, [user]);
-
-  return [clients, setClients, dbLoading];
-}
-
-function daysUntil(dateStr) {
-  if (!dateStr) return null;
-  const now = new Date(); now.setHours(0,0,0,0);
-  const t = new Date(dateStr); t.setHours(0,0,0,0);
-  return Math.ceil((t - now) / 86400000);
-}
-function formatDate(d) {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("ro-RO", { day: "2-digit", month: "short", year: "numeric" });
-}
-function formatDateTime(dateStr, timeStr) {
-  if (!dateStr) return "—";
-  const date = new Date(dateStr).toLocaleDateString("ro-RO", { day: "2-digit", month: "short", year: "numeric" });
-  return timeStr ? `${date}, ${timeStr}` : date;
-}
-function addDays(dateStr, days) {
-  const d = new Date(dateStr); d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
-}
-function today() { return new Date().toISOString().split("T")[0]; }
-function nowTime() {
-  const d = new Date();
-  return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
-}
-function getDaysInMonth(year, month) { return new Date(year, month + 1, 0).getDate(); }
-function getFirstDayOfMonth(year, month) {
-  const d = new Date(year, month, 1).getDay();
-  return d === 0 ? 6 : d - 1;
-}
-
-const GENDERS = ["Male", "Female", "Other"];
+// ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const ACCENT = "#00E5A0";
 const ACCENT2 = "#FF6B6B";
 const BG = "#0D0F14";
@@ -94,32 +13,109 @@ const MUTED = "#6B7590";
 const MONTH_NAMES = ["Ianuarie","Februarie","Martie","Aprilie","Mai","Iunie","Iulie","August","Septembrie","Octombrie","Noiembrie","Decembrie"];
 const DAY_NAMES = ["Lu","Ma","Mi","Jo","Vi","Sâ","Du"];
 const CLIENT_COLORS = ["#00E5A0","#FF6B6B","#A29BFE","#FFB74D","#4ECDC4","#FF8CC8","#74B9FF","#FDCB6E","#E17055","#55EFC4"];
+const GENDERS = ["Male","Female","Other"];
+const TRAINER_SECRET = import.meta.env.VITE_TRAINER_CODE || "TRAINER2024";
 
-function genderEmoji(g) { return g === "Female" ? "👩" : g === "Male" ? "👨" : "🧑"; }
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+function daysUntil(d) {
+  if (!d) return null;
+  const n=new Date(); n.setHours(0,0,0,0);
+  const t=new Date(d); t.setHours(0,0,0,0);
+  return Math.ceil((t-n)/86400000);
+}
+function formatDate(d) {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString("ro-RO",{day:"2-digit",month:"short",year:"numeric"});
+}
+function formatDateTime(d,t) { return d ? (t?`${formatDate(d)}, ${t}`:formatDate(d)) : "—"; }
+function addDays(dateStr,days) { const d=new Date(dateStr); d.setDate(d.getDate()+days); return d.toISOString().split("T")[0]; }
+function today() { return new Date().toISOString().split("T")[0]; }
+function nowTime() { const d=new Date(); return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; }
+function getDaysInMonth(y,m) { return new Date(y,m+1,0).getDate(); }
+function getFirstDayOfMonth(y,m) { const d=new Date(y,m,1).getDay(); return d===0?6:d-1; }
+function genderEmoji(g) { return g==="Female"?"👩":g==="Male"?"👨":"🧑"; }
+function genCode() { return Math.random().toString(36).substring(2,8).toUpperCase(); }
 
-// ── MINI CALENDAR (per-client) ──
-function MiniCalendar({ sessionDates = [], paymentDates = [] }) {
-  const now = new Date();
-  const [viewYear, setViewYear] = useState(now.getFullYear());
-  const [viewMonth, setViewMonth] = useState(now.getMonth());
-  const daysInMonth = getDaysInMonth(viewYear, viewMonth);
-  const firstDay = getFirstDayOfMonth(viewYear, viewMonth);
-  const todayStr = today();
-  const sessionSet = new Set(sessionDates.filter(d => { const [y,m]=d.split("-").map(Number); return y===viewYear&&m-1===viewMonth; }).map(d=>parseInt(d.split("-")[2])));
-  const paymentSet = new Set(paymentDates.filter(d => { const [y,m]=d.split("-").map(Number); return y===viewYear&&m-1===viewMonth; }).map(d=>parseInt(d.split("-")[2])));
-  const todayDay = (() => { const [ty,tm,td]=todayStr.split("-").map(Number); return ty===viewYear&&tm-1===viewMonth?td:null; })();
-  function prev() { if(viewMonth===0){setViewYear(y=>y-1);setViewMonth(11);}else setViewMonth(m=>m-1); }
-  function next() { if(viewMonth===11){setViewYear(y=>y+1);setViewMonth(0);}else setViewMonth(m=>m+1); }
-  const cells = [];
-  for(let i=0;i<firstDay;i++) cells.push(null);
-  for(let d=1;d<=daysInMonth;d++) cells.push(d);
+// ─── SUPABASE SYNC (Trainer clients) ─────────────────────────────────────────
+async function syncToSupabase(prev, next, userId) {
+  const prevMap = Object.fromEntries(prev.map(c=>[c.id,c]));
+  const nextMap = Object.fromEntries(next.map(c=>[c.id,c]));
+  for (const id of Object.keys(prevMap)) {
+    if (!nextMap[id]) await supabase.from("clients").delete().eq("id",id).eq("user_id",userId);
+  }
+  for (const client of next) {
+    const p = prevMap[client.id];
+    if (!p || JSON.stringify(p) !== JSON.stringify(client)) {
+      await supabase.from("clients").upsert({
+        id: client.id, user_id: userId,
+        client_email: client.email || null,
+        data: client
+      });
+    }
+  }
+}
+
+function useStorage(user) {
+  const [clients, setClientsState] = useState([]);
+  const [dbLoading, setDbLoading] = useState(true);
+  useEffect(() => {
+    if (!user) return;
+    supabase.from("clients").select("data").eq("user_id",user.id)
+      .then(({data}) => { if (data) setClientsState(data.map(r=>r.data)); setDbLoading(false); });
+  }, [user]);
+  const setClients = useCallback((updater) => {
+    setClientsState((prev) => {
+      const next = typeof updater==="function" ? updater(prev) : updater;
+      if (user) syncToSupabase(prev, next, user.id);
+      return next;
+    });
+  }, [user]);
+  return [clients, setClients, dbLoading];
+}
+
+// ─── SHARED STYLES ────────────────────────────────────────────────────────────
+function useS() {
+  return {
+    app:{minHeight:"100vh",background:BG,color:TEXT,fontFamily:"'DM Sans',sans-serif",paddingBottom:80},
+    header:{background:`linear-gradient(135deg,${CARD} 0%,#12161F 100%)`,borderBottom:`1px solid ${BORDER}`,padding:"18px 18px 12px",position:"sticky",top:0,zIndex:100},
+    navTabs:{display:"flex",gap:3,marginTop:12,background:`${CARD2}80`,borderRadius:10,padding:3},
+    tab:(a)=>({flex:1,padding:"7px 0",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,transition:"all 0.2s",background:a?ACCENT:"transparent",color:a?"#000":MUTED}),
+    main:{padding:"16px 14px",maxWidth:500,margin:"0 auto"},
+    sTitle:{fontSize:11,fontWeight:700,color:MUTED,letterSpacing:"1px",textTransform:"uppercase",marginBottom:10},
+    card:{background:CARD,borderRadius:16,padding:15,border:`1px solid ${BORDER}`,marginBottom:10},
+    row:{display:"flex",alignItems:"center",gap:8},
+    sb:{display:"flex",alignItems:"center",justifyContent:"space-between"},
+    avatar:(g)=>({width:42,height:42,borderRadius:11,background:g==="Female"?"linear-gradient(135deg,#FF6B9D,#C44569)":g==="Male"?"linear-gradient(135deg,#4ECDC4,#2980B9)":"linear-gradient(135deg,#A29BFE,#6C5CE7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:19,flexShrink:0}),
+    badge:(c,bg)=>({display:"inline-flex",alignItems:"center",gap:3,padding:"3px 8px",borderRadius:6,fontSize:11,fontWeight:700,color:c,background:bg}),
+    btn:(v)=>({border:"none",cursor:"pointer",borderRadius:10,fontWeight:700,fontSize:14,transition:"all 0.15s",display:"inline-flex",alignItems:"center",gap:6,fontFamily:"'DM Sans',sans-serif",...(v==="primary"?{background:ACCENT,color:"#000",padding:"11px 20px"}:v==="danger"?{background:`${ACCENT2}20`,color:ACCENT2,padding:"8px 14px",fontSize:13}:v==="ghost"?{background:CARD2,color:TEXT,padding:"8px 14px",fontSize:13,border:`1px solid ${BORDER}`}:v==="success"?{background:`${ACCENT}20`,color:ACCENT,padding:"8px 14px",fontSize:13}:v==="icon"?{background:"transparent",color:MUTED,padding:"4px 6px",fontSize:15,border:"none"}:{background:CARD2,color:TEXT,padding:"11px 20px",border:`1px solid ${BORDER}`})}),
+    input:{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"11px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",fontFamily:"'DM Sans',sans-serif"},
+    label:{fontSize:12,fontWeight:600,color:MUTED,marginBottom:5,display:"block"},
+    modal:{position:"fixed",inset:0,background:"#000000CC",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:999,backdropFilter:"blur(4px)"},
+    modalBox:{background:CARD,borderRadius:"20px 20px 0 0",padding:"24px 20px 36px",width:"100%",maxWidth:500,border:`1px solid ${BORDER}`,maxHeight:"90vh",overflowY:"auto"},
+    divider:{height:1,background:BORDER,margin:"12px 0"},
+    statBox:{background:CARD2,borderRadius:10,padding:"9px 6px",textAlign:"center",border:`1px solid ${BORDER}`},
+  };
+}
+
+// ─── MINI CALENDAR ────────────────────────────────────────────────────────────
+function MiniCalendar({ sessionDates=[], paymentDates=[] }) {
+  const now=new Date();
+  const [vy,setVy]=useState(now.getFullYear());
+  const [vm,setVm]=useState(now.getMonth());
+  const dim=getDaysInMonth(vy,vm), fd=getFirstDayOfMonth(vy,vm), ts=today();
+  const ss=new Set(sessionDates.filter(d=>{const[y,m]=d.split("-").map(Number);return y===vy&&m-1===vm;}).map(d=>parseInt(d.split("-")[2])));
+  const ps=new Set(paymentDates.filter(d=>{const[y,m]=d.split("-").map(Number);return y===vy&&m-1===vm;}).map(d=>parseInt(d.split("-")[2])));
+  const [ty,tm,td]=ts.split("-").map(Number); const today_d=ty===vy&&tm-1===vm?td:null;
+  function prev(){if(vm===0){setVy(y=>y-1);setVm(11);}else setVm(m=>m-1);}
+  function next(){if(vm===11){setVy(y=>y+1);setVm(0);}else setVm(m=>m+1);}
+  const cells=[]; for(let i=0;i<fd;i++) cells.push(null); for(let d=1;d<=dim;d++) cells.push(d);
   return (
     <div style={{background:CARD2,borderRadius:14,padding:14,border:`1px solid ${BORDER}`}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
         <button onClick={prev} style={{background:"none",border:"none",color:MUTED,cursor:"pointer",fontSize:18,padding:"2px 8px"}}>‹</button>
         <div>
-          <div style={{fontSize:14,fontWeight:700,color:TEXT,textAlign:"center"}}>{MONTH_NAMES[viewMonth]} {viewYear}</div>
-          <div style={{fontSize:11,color:MUTED,textAlign:"center"}}>{sessionSet.size} ședințe această lună · {sessionDates.length} total</div>
+          <div style={{fontSize:14,fontWeight:700,color:TEXT,textAlign:"center"}}>{MONTH_NAMES[vm]} {vy}</div>
+          <div style={{fontSize:11,color:MUTED,textAlign:"center"}}>{ss.size} ședințe această lună · {sessionDates.length} total</div>
         </div>
         <button onClick={next} style={{background:"none",border:"none",color:MUTED,cursor:"pointer",fontSize:18,padding:"2px 8px"}}>›</button>
       </div>
@@ -129,7 +125,7 @@ function MiniCalendar({ sessionDates = [], paymentDates = [] }) {
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
         {cells.map((day,i)=>{
           if(!day) return <div key={`e${i}`}/>;
-          const isSess=sessionSet.has(day), isPay=paymentSet.has(day), isToday=day===todayDay;
+          const isSess=ss.has(day),isPay=ps.has(day),isToday=day===today_d;
           return (
             <div key={day} style={{textAlign:"center",borderRadius:7,padding:"5px 1px",background:isSess?`${ACCENT}22`:isPay?"#A29BFE22":"transparent",border:isToday?`1.5px solid ${ACCENT}`:isSess?`1px solid ${ACCENT}50`:isPay?"1px solid #A29BFE50":"1px solid transparent"}}>
               <div style={{fontSize:12,fontWeight:isSess||isPay?700:400,color:isSess?ACCENT:isPay?"#A29BFE":isToday?ACCENT:MUTED}}>{day}</div>
@@ -146,62 +142,47 @@ function MiniCalendar({ sessionDates = [], paymentDates = [] }) {
   );
 }
 
-// ── GLOBAL CALENDAR ──
+// ─── GLOBAL CALENDAR ─────────────────────────────────────────────────────────
 function GlobalCalendar({ clients }) {
-  const now = new Date();
-  const [viewYear, setViewYear] = useState(now.getFullYear());
-  const [viewMonth, setViewMonth] = useState(now.getMonth());
-  const [selectedDay, setSelectedDay] = useState(null);
-  const daysInMonth = getDaysInMonth(viewYear, viewMonth);
-  const firstDay = getFirstDayOfMonth(viewYear, viewMonth);
-  const todayStr = today();
-  const dayMap = {};
-  clients.forEach((c,ci) => {
-    const color = CLIENT_COLORS[ci % CLIENT_COLORS.length];
-    (c.history||[]).forEach(h => {
-      const [y,m,d] = h.date.split("-").map(Number);
-      if(y===viewYear&&m-1===viewMonth) {
-        if(!dayMap[d]) dayMap[d]=[];
-        dayMap[d].push({clientName:c.name,color,type:h.type,sessionPrice:c.sessionPrice,amount:h.amount,time:h.time});
-      }
+  const now=new Date();
+  const [vy,setVy]=useState(now.getFullYear());
+  const [vm,setVm]=useState(now.getMonth());
+  const [selDay,setSelDay]=useState(null);
+  const dim=getDaysInMonth(vy,vm), fd=getFirstDayOfMonth(vy,vm), ts=today();
+  const dayMap={};
+  clients.forEach((c,ci)=>{
+    const color=CLIENT_COLORS[ci%CLIENT_COLORS.length];
+    (c.history||[]).forEach(h=>{
+      const[y,m,d]=h.date.split("-").map(Number);
+      if(y===vy&&m-1===vm){if(!dayMap[d])dayMap[d]=[];dayMap[d].push({clientName:c.name,color,type:h.type,sessionPrice:c.sessionPrice,amount:h.amount,time:h.time});}
     });
   });
-  const todayDay = (() => { const [ty,tm,td]=todayStr.split("-").map(Number); return ty===viewYear&&tm-1===viewMonth?td:null; })();
-  function prev() { if(viewMonth===0){setViewYear(y=>y-1);setViewMonth(11);}else setViewMonth(m=>m-1); }
-  function next() { if(viewMonth===11){setViewYear(y=>y+1);setViewMonth(0);}else setViewMonth(m=>m+1); }
-  const cells=[];
-  for(let i=0;i<firstDay;i++) cells.push(null);
-  for(let d=1;d<=daysInMonth;d++) cells.push(d);
+  const [ty,tm,td]=ts.split("-").map(Number); const today_d=ty===vy&&tm-1===vm?td:null;
+  function prev(){if(vm===0){setVy(y=>y-1);setVm(11);}else setVm(m=>m-1);}
+  function next(){if(vm===11){setVy(y=>y+1);setVm(0);}else setVm(m=>m+1);}
+  const cells=[]; for(let i=0;i<fd;i++) cells.push(null); for(let d=1;d<=dim;d++) cells.push(d);
   const monthSessions=Object.values(dayMap).flat().filter(e=>e.type==="session").length;
-  const monthIncome=clients.flatMap(c=>(c.history||[]).filter(h=>{const[y,m]=h.date.split("-").map(Number);return y===viewYear&&m-1===viewMonth&&h.type==="payment";}).map(h=>Number(h.amount||0))).reduce((a,b)=>a+b,0);
-  const selectedEvents=selectedDay?(dayMap[selectedDay]||[]):[];
+  const monthIncome=clients.flatMap(c=>(c.history||[]).filter(h=>{const[y,m]=h.date.split("-").map(Number);return y===vy&&m-1===vm&&h.type==="payment";}).map(h=>Number(h.amount||0))).reduce((a,b)=>a+b,0);
+  const selEvents=selDay?(dayMap[selDay]||[]):[];
   return (
     <div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-        <div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:12,padding:"12px 14px"}}>
-          <div style={{fontSize:22,fontWeight:900,color:ACCENT}}>{monthSessions}</div>
-          <div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px"}}>Antrenamente luna</div>
-        </div>
-        <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:"12px 14px"}}>
-          <div style={{fontSize:22,fontWeight:900,color:"#A29BFE"}}>{monthIncome} RON</div>
-          <div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px"}}>Plăți luna</div>
-        </div>
+        <div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:12,padding:"12px 14px"}}><div style={{fontSize:22,fontWeight:900,color:ACCENT}}>{monthSessions}</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px"}}>Antrenamente luna</div></div>
+        <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:"12px 14px"}}><div style={{fontSize:22,fontWeight:900,color:"#A29BFE"}}>{monthIncome} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px"}}>Plăți luna</div></div>
       </div>
       <div style={{background:CARD2,borderRadius:14,padding:14,border:`1px solid ${BORDER}`,marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
           <button onClick={prev} style={{background:"none",border:"none",color:MUTED,cursor:"pointer",fontSize:20,padding:"2px 8px"}}>‹</button>
-          <div style={{fontSize:15,fontWeight:800,color:TEXT}}>{MONTH_NAMES[viewMonth]} {viewYear}</div>
+          <div style={{fontSize:15,fontWeight:800,color:TEXT}}>{MONTH_NAMES[vm]} {vy}</div>
           <button onClick={next} style={{background:"none",border:"none",color:MUTED,cursor:"pointer",fontSize:20,padding:"2px 8px"}}>›</button>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:6}}>
-          {DAY_NAMES.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:MUTED}}>{d}</div>)}
-        </div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:6}}>{DAY_NAMES.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:MUTED}}>{d}</div>)}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
           {cells.map((day,i)=>{
             if(!day) return <div key={`e${i}`}/>;
-            const events=dayMap[day]||[], isToday=day===todayDay, isSel=day===selectedDay;
+            const events=dayMap[day]||[],isToday=day===today_d,isSel=day===selDay;
             return (
-              <div key={day} onClick={()=>setSelectedDay(day===selectedDay?null:day)} style={{borderRadius:8,padding:"6px 2px 4px",cursor:events.length>0||isToday?"pointer":"default",background:isSel?`${ACCENT}20`:isToday?`${ACCENT}0D`:events.length>0?CARD:"transparent",border:isSel?`1.5px solid ${ACCENT}`:isToday?`1px solid ${ACCENT}60`:events.length>0?`1px solid ${BORDER}`:"1px solid transparent",transition:"all 0.1s"}}>
+              <div key={day} onClick={()=>setSelDay(day===selDay?null:day)} style={{borderRadius:8,padding:"6px 2px 4px",cursor:events.length>0||isToday?"pointer":"default",background:isSel?`${ACCENT}20`:isToday?`${ACCENT}0D`:events.length>0?CARD:"transparent",border:isSel?`1.5px solid ${ACCENT}`:isToday?`1px solid ${ACCENT}60`:events.length>0?`1px solid ${BORDER}`:"1px solid transparent",transition:"all 0.1s"}}>
                 <div style={{textAlign:"center",fontSize:12,fontWeight:events.length>0?700:400,color:isToday?ACCENT:events.length>0?TEXT:MUTED}}>{day}</div>
                 <div style={{display:"flex",justifyContent:"center",flexWrap:"wrap",gap:2,marginTop:3,minHeight:7}}>
                   {events.slice(0,4).map((e,di)=><div key={di} style={{width:5,height:5,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.color}}/>)}
@@ -211,19 +192,13 @@ function GlobalCalendar({ clients }) {
           })}
         </div>
       </div>
-      {selectedDay&&(
+      {selDay&&(
         <div style={{background:CARD,borderRadius:14,padding:16,border:`1px solid ${BORDER}`,marginBottom:14}}>
-          <div style={{fontSize:13,fontWeight:700,color:MUTED,marginBottom:10,textTransform:"uppercase",letterSpacing:"0.5px"}}>{selectedDay} {MONTH_NAMES[viewMonth]} {viewYear}</div>
-          {selectedEvents.length===0?<div style={{color:MUTED,fontSize:14}}>Nicio activitate în această zi</div>
-            :selectedEvents.map((e,i)=>(
-              <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:i<selectedEvents.length-1?`1px solid ${BORDER}`:"none"}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  <div style={{width:10,height:10,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.color,flexShrink:0}}/>
-                  <div>
-                    <div style={{fontSize:14,fontWeight:600}}>{e.clientName}</div>
-                    <div style={{fontSize:11,color:MUTED}}>{e.type==="session"?"🏋️ Antrenament":"💳 Plată"}{e.time?` · ${e.time}`:""}</div>
-                  </div>
-                </div>
+          <div style={{fontSize:13,fontWeight:700,color:MUTED,marginBottom:10,textTransform:"uppercase",letterSpacing:"0.5px"}}>{selDay} {MONTH_NAMES[vm]} {vy}</div>
+          {selEvents.length===0?<div style={{color:MUTED,fontSize:14}}>Nicio activitate în această zi</div>
+            :selEvents.map((e,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:i<selEvents.length-1?`1px solid ${BORDER}`:"none"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:10,height:10,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.color,flexShrink:0}}/><div><div style={{fontSize:14,fontWeight:600}}>{e.clientName}</div><div style={{fontSize:11,color:MUTED}}>{e.type==="session"?"🏋️ Antrenament":"💳 Plată"}{e.time?` · ${e.time}`:""}</div></div></div>
                 {e.type==="session"&&e.sessionPrice>0&&<span style={{fontSize:13,fontWeight:700,color:e.color}}>{e.sessionPrice} RON</span>}
                 {e.type==="payment"&&<span style={{fontSize:13,fontWeight:700,color:"#A29BFE"}}>{e.amount} RON</span>}
               </div>
@@ -231,243 +206,315 @@ function GlobalCalendar({ clients }) {
         </div>
       )}
       {clients.length>0&&(
-        <>
-          <div style={{fontSize:11,fontWeight:700,color:MUTED,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>Legendă clienți</div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
-            {clients.map((c,ci)=>(
-              <div key={c.id} style={{display:"flex",alignItems:"center",gap:5,background:CARD2,borderRadius:8,padding:"5px 10px",border:`1px solid ${BORDER}`}}>
-                <div style={{width:8,height:8,borderRadius:"50%",background:CLIENT_COLORS[ci%CLIENT_COLORS.length]}}/>
-                <span style={{fontSize:12,fontWeight:600}}>{c.name}</span>
-              </div>
-            ))}
-          </div>
-        </>
+        <><div style={{fontSize:11,fontWeight:700,color:MUTED,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>Legendă clienți</div>
+        <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
+          {clients.map((c,ci)=>(
+            <div key={c.id} style={{display:"flex",alignItems:"center",gap:5,background:CARD2,borderRadius:8,padding:"5px 10px",border:`1px solid ${BORDER}`}}>
+              <div style={{width:8,height:8,borderRadius:"50%",background:CLIENT_COLORS[ci%CLIENT_COLORS.length]}}/>
+              <span style={{fontSize:12,fontWeight:600}}>{c.name}</span>
+            </div>
+          ))}
+        </div></>
       )}
     </div>
   );
 }
 
-// ══════════════════════════════ MAIN APP ══════════════════════════════
-function App({ user }) {
-  const [clients, setClients, dbLoading] = useStorage(user);
-  const [tab, setTab] = useState("clients");
-  const [modal, setModal] = useState(null);
-  const [editForm, setEditForm] = useState(null);
-  const [selectedClient, setSelectedClient] = useState(null);
+// ─── MEASUREMENTS SECTION ─────────────────────────────────────────────────────
+function MeasurementsSection({ clientId, trainerId, readOnly=false }) {
+  const S=useS();
+  const [measurements,setMeasurements]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [showForm,setShowForm]=useState(false);
+  const [form,setForm]=useState({date:today(),weight:"",arms:"",hips:"",legs:"",notes:""});
+  const [saving,setSaving]=useState(false);
 
-  // Session modal state
-  const [sessDate, setSessDate] = useState(today());
-  const [sessTime, setSessTime] = useState(nowTime());
+  useEffect(()=>{
+    supabase.from("measurements").select("*").eq("client_id",clientId).order("date",{ascending:false})
+      .then(({data})=>{ if(data) setMeasurements(data); setLoading(false); });
+  },[clientId]);
 
-  // Payment modal state
-  const [payAmount, setPayAmount] = useState("");
-  const [paySessions, setPaySessions] = useState("");
-  const [payDueDays, setPayDueDays] = useState(30);
-  const [payDate, setPayDate] = useState(today());
+  async function saveMeasurement() {
+    setSaving(true);
+    const {data,error}=await supabase.from("measurements").insert({
+      client_id:clientId, trainer_id:trainerId,
+      date:form.date,
+      weight:form.weight?Number(form.weight):null,
+      arms:form.arms?Number(form.arms):null,
+      hips:form.hips?Number(form.hips):null,
+      legs:form.legs?Number(form.legs):null,
+      notes:form.notes||null,
+    }).select().single();
+    if(!error&&data){ setMeasurements(prev=>[data,...prev]); setShowForm(false); setForm({date:today(),weight:"",arms:"",hips:"",legs:"",notes:""}); }
+    setSaving(false);
+  }
 
-  // Confirm delete entry state
-  const [deleteConfirm, setDeleteConfirm] = useState(null); // {clientId, entryId}
-  const [deleteClientConfirm, setDeleteClientConfirm] = useState(null); // clientId
+  async function deleteMeasurement(id) {
+    await supabase.from("measurements").delete().eq("id",id);
+    setMeasurements(prev=>prev.filter(m=>m.id!==id));
+  }
 
-  const todayStr = today();
-  const todaySessions = clients.flatMap(c=>(c.history||[]).filter(h=>h.type==="session"&&h.date===todayStr).map(h=>({...h,clientName:c.name,sessionPrice:c.sessionPrice||0})));
-  const todayIncome = todaySessions.reduce((s,h)=>s+Number(h.sessionPrice||0),0);
-  const todayPayments = clients.flatMap(c=>(c.history||[]).filter(h=>h.type==="payment"&&h.date===todayStr).map(h=>({...h,clientName:c.name})));
-  const todayPaymentTotal = todayPayments.reduce((s,h)=>s+Number(h.amount||0),0);
-  const thisMonth = todayStr.slice(0,7);
-  const monthIncome = clients.flatMap(c=>(c.history||[]).filter(h=>h.type==="payment"&&h.date?.startsWith(thisMonth)).map(h=>Number(h.amount||0))).reduce((a,b)=>a+b,0);
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <div style={S.sTitle}>📏 Măsurători</div>
+        {!readOnly&&<button style={S.btn("success")} onClick={()=>setShowForm(true)}>+ Adaugă</button>}
+      </div>
+      {loading?<div style={{color:MUTED,fontSize:13}}>Se încarcă...</div>:
+        measurements.length===0?<div style={{color:MUTED,fontSize:13,padding:"10px 0"}}>Nicio măsurătoare încă</div>:
+        measurements.map(m=>(
+          <div key={m.id} style={{...S.card,padding:"12px 14px",marginBottom:8}}>
+            <div style={S.sb}>
+              <div style={{fontSize:12,fontWeight:700,color:MUTED}}>{formatDate(m.date)}</div>
+              {!readOnly&&<button style={{...S.btn("icon"),color:ACCENT2}} onClick={()=>deleteMeasurement(m.id)}>✕</button>}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}>
+              {[["⚖️ Greutate",m.weight,"kg"],["💪 Brațe",m.arms,"cm"],["🫀 Șolduri",m.hips,"cm"],["🦵 Picioare",m.legs,"cm"]].map(([label,val,unit])=>(
+                val!=null&&<div key={label} style={{background:CARD2,borderRadius:8,padding:"8px 10px"}}>
+                  <div style={{fontSize:11,color:MUTED,fontWeight:600}}>{label}</div>
+                  <div style={{fontSize:16,fontWeight:800,color:ACCENT,marginTop:2}}>{val} <span style={{fontSize:11,color:MUTED}}>{unit}</span></div>
+                </div>
+              ))}
+            </div>
+            {m.notes&&<div style={{fontSize:12,color:MUTED,marginTop:8,fontStyle:"italic"}}>"{m.notes}"</div>}
+          </div>
+        ))
+      }
 
-  function openAddClient() { setEditForm({id:"",name:"",age:"",gender:"Male",fee:"",sessionPrice:"",paidDate:null,dueDays:30,nextDue:null,sessionsLeft:0,totalSessions:0,history:[]}); setModal({type:"addClient"}); }
-  function openEditClient(c) { setEditForm({...c}); setModal({type:"editClient"}); }
+      {showForm&&(
+        <div style={S.modal} onClick={()=>setShowForm(false)}>
+          <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:18,fontWeight:800,marginBottom:16}}>📏 Măsurătoare nouă</div>
+            <label style={S.label}>Data</label>
+            <input type="date" style={{...S.input,marginBottom:12,colorScheme:"dark"}} value={form.date} onChange={e=>setForm(p=>({...p,date:e.target.value}))}/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+              {[["weight","⚖️ Greutate (kg)"],["arms","💪 Brațe (cm)"],["hips","🫀 Șolduri (cm)"],["legs","🦵 Picioare (cm)"]].map(([key,label])=>(
+                <div key={key}><label style={S.label}>{label}</label><input style={S.input} type="number" placeholder="0" value={form[key]} onChange={e=>setForm(p=>({...p,[key]:e.target.value}))}/></div>
+              ))}
+            </div>
+            <label style={S.label}>Note (opțional)</label>
+            <input style={{...S.input,marginBottom:18}} placeholder="Observații..." value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))}/>
+            <div style={{display:"flex",gap:8}}>
+              <button style={{...S.btn(),flex:1}} onClick={()=>setShowForm(false)}>Anulează</button>
+              <button style={{...S.btn("primary"),flex:2}} onClick={saveMeasurement} disabled={saving}>{saving?"Se salvează...":"✅ Salvează"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── PROGRESS PHOTOS SECTION ──────────────────────────────────────────────────
+function ProgressPhotosSection({ clientId, trainerId, readOnly=false }) {
+  const S=useS();
+  const [photos,setPhotos]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [uploading,setUploading]=useState(false);
+  const [viewPhoto,setViewPhoto]=useState(null);
+  const [photoDate,setPhotoDate]=useState(today());
+  const [showDatePick,setShowDatePick]=useState(false);
+  const fileRef=useRef();
+
+  useEffect(()=>{
+    supabase.from("progress_photos").select("*").eq("client_id",clientId).order("date",{ascending:false})
+      .then(({data})=>{ if(data) setPhotos(data); setLoading(false); });
+  },[clientId]);
+
+  async function handleFileChange(e) {
+    const file=e.target.files[0]; if(!file) return;
+    setUploading(true);
+    try {
+      const ext=file.name.split(".").pop();
+      const path=`${clientId}/${Date.now()}.${ext}`;
+      const {error:upErr}=await supabase.storage.from("progress-photos").upload(path,file,{upsert:true});
+      if(upErr) throw upErr;
+      const {data:{publicUrl}}=supabase.storage.from("progress-photos").getPublicUrl(path);
+      const {data,error:dbErr}=await supabase.from("progress_photos").insert({
+        client_id:clientId, trainer_id:trainerId, date:photoDate, photo_url:publicUrl, path
+      }).select().single();
+      if(!dbErr&&data) setPhotos(prev=>[data,...prev]);
+    } catch(err) { alert("Eroare la încărcare: "+err.message); }
+    setUploading(false); setShowDatePick(false);
+    e.target.value="";
+  }
+
+  async function deletePhoto(photo) {
+    await supabase.storage.from("progress-photos").remove([photo.path]);
+    await supabase.from("progress_photos").delete().eq("id",photo.id);
+    setPhotos(prev=>prev.filter(p=>p.id!==photo.id));
+  }
+
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <div style={S.sTitle}>📸 Poze progres</div>
+        {!readOnly&&<button style={S.btn("success")} onClick={()=>setShowDatePick(true)}>+ Adaugă</button>}
+      </div>
+      {loading?<div style={{color:MUTED,fontSize:13}}>Se încarcă...</div>:
+        photos.length===0?<div style={{color:MUTED,fontSize:13,padding:"10px 0"}}>Nicio poză încă</div>:
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+          {photos.map(p=>(
+            <div key={p.id} style={{position:"relative",borderRadius:10,overflow:"hidden",border:`1px solid ${BORDER}`,cursor:"pointer"}} onClick={()=>setViewPhoto(p)}>
+              <img src={p.photo_url} alt="" style={{width:"100%",aspectRatio:"1",objectFit:"cover",display:"block"}}/>
+              <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,0.7))",padding:"6px 4px 4px",fontSize:10,color:"#fff",fontWeight:600,textAlign:"center"}}>{formatDate(p.date)}</div>
+            </div>
+          ))}
+        </div>
+      }
+
+      {showDatePick&&(
+        <div style={S.modal} onClick={()=>setShowDatePick(false)}>
+          <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:18,fontWeight:800,marginBottom:16}}>📸 Adaugă poză</div>
+            <label style={S.label}>Data pozei</label>
+            <input type="date" style={{...S.input,marginBottom:18,colorScheme:"dark"}} value={photoDate} onChange={e=>setPhotoDate(e.target.value)}/>
+            <input type="file" accept="image/*" ref={fileRef} style={{display:"none"}} onChange={handleFileChange}/>
+            <button style={{...S.btn("primary"),width:"100%",justifyContent:"center"}} onClick={()=>fileRef.current.click()} disabled={uploading}>
+              {uploading?"Se încarcă...":"📷 Alege o poză"}
+            </button>
+            <button style={{...S.btn(),width:"100%",justifyContent:"center",marginTop:8}} onClick={()=>setShowDatePick(false)}>Anulează</button>
+          </div>
+        </div>
+      )}
+
+      {viewPhoto&&(
+        <div style={{...S.modal,alignItems:"center"}} onClick={()=>setViewPhoto(null)}>
+          <div style={{background:CARD,borderRadius:20,padding:16,width:"100%",maxWidth:400,margin:16}} onClick={e=>e.stopPropagation()}>
+            <div style={S.sb}>
+              <div style={{fontSize:14,fontWeight:700}}>{formatDate(viewPhoto.date)}</div>
+              {!readOnly&&<button style={{...S.btn("danger"),padding:"6px 12px",fontSize:12}} onClick={()=>{deletePhoto(viewPhoto);setViewPhoto(null);}}>🗑 Șterge</button>}
+            </div>
+            <img src={viewPhoto.photo_url} alt="" style={{width:"100%",borderRadius:12,marginTop:12,objectFit:"contain",maxHeight:400}}/>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── HISTORY ENTRY ────────────────────────────────────────────────────────────
+function HistoryEntry({ h, clientId, onDelete }) {
+  const S=useS();
+  return (
+    <div style={{...S.card,padding:"11px 14px",marginBottom:7}}>
+      <div style={S.sb}>
+        <div style={S.row}>
+          <span style={{fontSize:17}}>{h.type==="payment"?"💳":"🏋️"}</span>
+          <div>
+            <div style={{fontSize:13,fontWeight:600}}>{h.note}</div>
+            <div style={{fontSize:11,color:MUTED}}>{formatDateTime(h.date,h.time)}</div>
+          </div>
+        </div>
+        <div style={S.row}>
+          {h.type==="payment"&&<span style={S.badge(ACCENT,`${ACCENT}20`)}>+{h.amount} RON</span>}
+          {h.type==="session"&&h.sessionPrice>0&&<span style={S.badge("#A29BFE","#A29BFE20")}>{h.sessionPrice} RON</span>}
+          <button style={{...S.btn("icon"),color:ACCENT2,marginLeft:2}} onClick={()=>onDelete(h.id)}>✕</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── TRAINER APP ──────────────────────────────────────────────────────────────
+function TrainerApp({ user }) {
+  const S=useS();
+  const [clients,setClients,dbLoading]=useStorage(user);
+  const [tab,setTab]=useState("clients");
+  const [modal,setModal]=useState(null);
+  const [editForm,setEditForm]=useState(null);
+  const [selClient,setSelClient]=useState(null);
+  const [clientTab,setClientTab]=useState("info"); // info | measures | photos
+  const [sessDate,setSessDate]=useState(today());
+  const [sessTime,setSessTime]=useState(nowTime());
+  const [payAmount,setPayAmount]=useState("");
+  const [paySessions,setPaySessions]=useState("");
+  const [payDueDays,setPayDueDays]=useState(30);
+  const [payDate,setPayDate]=useState(today());
+  const [deleteConfirm,setDeleteConfirm]=useState(null);
+  const [deleteClientConfirm,setDeleteClientConfirm]=useState(null);
+
+  const ts=today();
+  const todaySess=clients.flatMap(c=>(c.history||[]).filter(h=>h.type==="session"&&h.date===ts).map(h=>({...h,clientName:c.name,sessionPrice:c.sessionPrice||0})));
+  const todayIncome=todaySess.reduce((s,h)=>s+Number(h.sessionPrice||0),0);
+  const todayPays=clients.flatMap(c=>(c.history||[]).filter(h=>h.type==="payment"&&h.date===ts).map(h=>({...h,clientName:c.name})));
+  const todayPayTotal=todayPays.reduce((s,h)=>s+Number(h.amount||0),0);
+  const thisMonth=ts.slice(0,7);
+  const monthIncome=clients.flatMap(c=>(c.history||[]).filter(h=>h.type==="payment"&&h.date?.startsWith(thisMonth)).map(h=>Number(h.amount||0))).reduce((a,b)=>a+b,0);
+
+  function openAdd() { setEditForm({id:"",name:"",age:"",gender:"Male",email:"",fee:"",sessionPrice:"",paidDate:null,dueDays:30,nextDue:null,sessionsLeft:0,totalSessions:0,history:[]}); setModal({type:"addClient"}); }
+  function openEdit(c) { setEditForm({...c}); setModal({type:"editClient"}); }
   function saveClient() {
     if(!editForm.name.trim()) return;
     if(modal.type==="addClient") setClients(prev=>[...prev,{...editForm,id:Date.now().toString(),history:[]}]);
     else setClients(prev=>prev.map(c=>c.id===editForm.id?editForm:c));
     setModal(null);
   }
-  function deleteClient(id) { setClients(prev=>prev.filter(c=>c.id!==id)); setSelectedClient(null); setModal(null); }
-
-  // Open session modal
-  function openMarkSession(clientId) {
-    setSessDate(today());
-    setSessTime(nowTime());
-    setModal({type:"markSession", clientId});
-  }
-
-  // Confirm session
+  function deleteClient(id) { setClients(prev=>prev.filter(c=>c.id!==id)); setSelClient(null); setModal(null); }
+  function openMarkSession(clientId) { setSessDate(today()); setSessTime(nowTime()); setModal({type:"markSession",clientId}); }
   function confirmSession() {
-    const clientId = modal.clientId;
     setClients(prev=>prev.map(c=>{
-      if(c.id!==clientId) return c;
-      return {
-        ...c, sessionsLeft: Math.max(0, (c.sessionsLeft||0)-1),
-        history: [...(c.history||[]), {
-          id: Date.now().toString(), type:"session",
-          date: sessDate, time: sessTime,
-          sessionPrice: c.sessionPrice||0,
-          note:`Ședință completată`
-        }]
-      };
+      if(c.id!==modal.clientId) return c;
+      return {...c,sessionsLeft:Math.max(0,(c.sessionsLeft||0)-1),history:[...(c.history||[]),{id:Date.now().toString(),type:"session",date:sessDate,time:sessTime,sessionPrice:c.sessionPrice||0,note:"Ședință completată"}]};
     }));
     setModal(null);
   }
-
-  // Open payment modal
-  function openMarkPaid(clientId) {
-    const c = clients.find(x=>x.id===clientId);
-    setPayAmount(c?.fee||"");
-    setPaySessions("");
-    setPayDueDays(c?.dueDays||30);
-    setPayDate(today());
-    setModal({type:"markPaid", clientId});
-  }
-
-  // Confirm payment
+  function openMarkPaid(clientId) { const c=clients.find(x=>x.id===clientId); setPayAmount(c?.fee||""); setPaySessions(""); setPayDueDays(c?.dueDays||30); setPayDate(today()); setModal({type:"markPaid",clientId}); }
   function confirmPayment() {
-    const clientId = modal.clientId;
     setClients(prev=>prev.map(c=>{
-      if(c.id!==clientId) return c;
-      const nd = addDays(payDate, payDueDays);
-      return {
-        ...c, paidDate:payDate, nextDue:nd, dueDays:payDueDays,
-        sessionsLeft:(c.sessionsLeft||0)+Number(paySessions||0),
-        totalSessions:(c.totalSessions||0)+Number(paySessions||0),
-        fee:payAmount||c.fee,
-        history:[...(c.history||[]),{
-          id:Date.now().toString(), type:"payment",
-          date:payDate, time:"",
-          amount:Number(payAmount||c.fee||0),
-          sessions:Number(paySessions||0),
-          note:`Plată: ${paySessions} ședințe`
-        }]
-      };
+      if(c.id!==modal.clientId) return c;
+      const nd=addDays(payDate,payDueDays);
+      return {...c,paidDate:payDate,nextDue:nd,dueDays:payDueDays,sessionsLeft:(c.sessionsLeft||0)+Number(paySessions||0),totalSessions:(c.totalSessions||0)+Number(paySessions||0),fee:payAmount||c.fee,history:[...(c.history||[]),{id:Date.now().toString(),type:"payment",date:payDate,time:"",amount:Number(payAmount||c.fee||0),sessions:Number(paySessions||0),note:`Plată: ${paySessions} ședințe`}]};
     }));
     setModal(null);
   }
-
-  // Delete a history entry
-  function deleteEntry(clientId, entryId) {
+  function deleteEntry(clientId,entryId) {
     setClients(prev=>prev.map(c=>{
       if(c.id!==clientId) return c;
-      const entry = (c.history||[]).find(h=>h.id===entryId);
-      // If it was a session, restore the count
-      const sessRestore = entry?.type==="session" ? 1 : 0;
-      return {
-        ...c,
-        sessionsLeft: (c.sessionsLeft||0) + sessRestore,
-        history: (c.history||[]).filter(h=>h.id!==entryId)
-      };
+      const entry=(c.history||[]).find(h=>h.id===entryId);
+      return {...c,sessionsLeft:(c.sessionsLeft||0)+(entry?.type==="session"?1:0),history:(c.history||[]).filter(h=>h.id!==entryId)};
     }));
     setDeleteConfirm(null);
   }
 
-  const client = selectedClient ? clients.find(c=>c.id===selectedClient) : null;
-
-  const S = {
-    app:{minHeight:"100vh",background:BG,color:TEXT,fontFamily:"'DM Sans',sans-serif",paddingBottom:80},
-    header:{background:`linear-gradient(135deg,${CARD} 0%,#12161F 100%)`,borderBottom:`1px solid ${BORDER}`,padding:"18px 18px 12px",position:"sticky",top:0,zIndex:100},
-    navTabs:{display:"flex",gap:3,marginTop:12,background:`${CARD2}80`,borderRadius:10,padding:3},
-    tab:(a)=>({flex:1,padding:"7px 0",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,transition:"all 0.2s",background:a?ACCENT:"transparent",color:a?"#000":MUTED}),
-    main:{padding:"16px 14px",maxWidth:500,margin:"0 auto"},
-    sTitle:{fontSize:11,fontWeight:700,color:MUTED,letterSpacing:"1px",textTransform:"uppercase",marginBottom:10},
-    card:{background:CARD,borderRadius:16,padding:15,border:`1px solid ${BORDER}`,marginBottom:10},
-    row:{display:"flex",alignItems:"center",gap:8},
-    sb:{display:"flex",alignItems:"center",justifyContent:"space-between"},
-    avatar:(g)=>({width:42,height:42,borderRadius:11,background:g==="Female"?"linear-gradient(135deg,#FF6B9D,#C44569)":g==="Male"?"linear-gradient(135deg,#4ECDC4,#2980B9)":"linear-gradient(135deg,#A29BFE,#6C5CE7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:19,flexShrink:0}),
-    badge:(c,bg)=>({display:"inline-flex",alignItems:"center",gap:3,padding:"3px 8px",borderRadius:6,fontSize:11,fontWeight:700,color:c,background:bg}),
-    btn:(v)=>({border:"none",cursor:"pointer",borderRadius:10,fontWeight:700,fontSize:14,transition:"all 0.15s",display:"inline-flex",alignItems:"center",gap:6,...(v==="primary"?{background:ACCENT,color:"#000",padding:"11px 20px"}:v==="danger"?{background:`${ACCENT2}20`,color:ACCENT2,padding:"8px 14px",fontSize:13}:v==="ghost"?{background:CARD2,color:TEXT,padding:"8px 14px",fontSize:13,border:`1px solid ${BORDER}`}:v==="success"?{background:`${ACCENT}20`,color:ACCENT,padding:"8px 14px",fontSize:13}:v==="icon"?{background:"transparent",color:MUTED,padding:"4px 6px",fontSize:15,border:"none"}:{background:CARD2,color:TEXT,padding:"11px 20px",border:`1px solid ${BORDER}`})}),
-    input:{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"11px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box"},
-    label:{fontSize:12,fontWeight:600,color:MUTED,marginBottom:5,display:"block"},
-    modal:{position:"fixed",inset:0,background:"#000000CC",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:999,backdropFilter:"blur(4px)"},
-    modalBox:{background:CARD,borderRadius:"20px 20px 0 0",padding:"24px 20px 36px",width:"100%",maxWidth:500,border:`1px solid ${BORDER}`,maxHeight:"90vh",overflowY:"auto"},
-    divider:{height:1,background:BORDER,margin:"12px 0"},
-    statBox:{background:CARD2,borderRadius:10,padding:"9px 6px",textAlign:"center",border:`1px solid ${BORDER}`},
-  };
-
-  // ── Reusable history entry renderer ──
-  function HistoryEntry({ h, clientId }) {
-    return (
-      <div style={{...S.card,padding:"11px 14px",marginBottom:7}}>
-        <div style={S.sb}>
-          <div style={S.row}>
-            <span style={{fontSize:17}}>{h.type==="payment"?"💳":"🏋️"}</span>
-            <div>
-              <div style={{fontSize:13,fontWeight:600}}>{h.note}</div>
-              <div style={{fontSize:11,color:MUTED}}>
-                {formatDateTime(h.date, h.time)}
-              </div>
-            </div>
-          </div>
-          <div style={S.row}>
-            {h.type==="payment"&&<span style={S.badge(ACCENT,`${ACCENT}20`)}>+{h.amount} RON</span>}
-            {h.type==="session"&&h.sessionPrice>0&&<span style={S.badge("#A29BFE","#A29BFE20")}>{h.sessionPrice} RON</span>}
-            <button
-              style={{...S.btn("icon"),color:ACCENT2,marginLeft:2}}
-              onClick={()=>setDeleteConfirm({clientId,entryId:h.id})}
-              title="Șterge"
-            >✕</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const client=selClient?clients.find(c=>c.id===selClient):null;
 
   return (
     <div style={S.app}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-
-      {/* DB LOADING */}
-      {dbLoading && (
-        <div style={{position:"fixed",inset:0,background:"#0D0F14",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:9999}}>
-          <div style={{fontSize:40,marginBottom:16}}>💪</div>
-          <div style={{color:"#00E5A0",fontSize:14,fontWeight:700}}>Se încarcă datele...</div>
-        </div>
-      )}
+      {dbLoading&&<div style={{position:"fixed",inset:0,background:BG,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:9999}}><div style={{fontSize:40,marginBottom:16}}>💪</div><div style={{color:ACCENT,fontSize:14,fontWeight:700}}>Se încarcă datele...</div></div>}
 
       {/* HEADER */}
       <div style={S.header}>
         <div style={S.sb}>
           <div style={S.row}>
             <div style={{width:34,height:34,borderRadius:9,background:`linear-gradient(135deg,${ACCENT},#00B87A)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}}>💪</div>
-            <div>
-              <div style={{fontSize:17,fontWeight:800,letterSpacing:"-0.3px"}}>PT Tracker</div>
-              <div style={{fontSize:10,color:MUTED,letterSpacing:"0.5px",textTransform:"uppercase"}}>Personal Trainer Pro</div>
-            </div>
+            <div><div style={{fontSize:17,fontWeight:800,letterSpacing:"-0.3px"}}>PT Tracker</div><div style={{fontSize:10,color:MUTED,letterSpacing:"0.5px",textTransform:"uppercase"}}>Trainer</div></div>
           </div>
-          <div style={{display:"flex",gap:8,alignItems:"center"}}>
-            {tab==="clients"&&!selectedClient&&<button style={S.btn("primary")} onClick={openAddClient}>+ Client</button>}
+          <div style={S.row}>
+            {tab==="clients"&&!selClient&&<button style={S.btn("primary")} onClick={openAdd}>+ Client</button>}
             <button onClick={()=>supabase.auth.signOut()} title="Deconectare" style={{background:"transparent",border:`1px solid ${BORDER}`,borderRadius:9,padding:"6px 10px",color:MUTED,cursor:"pointer",fontSize:13,fontWeight:700}}>⏻</button>
           </div>
         </div>
         <div style={S.navTabs}>
           {[["clients","👥","Clienți"],["calendar","📅","Calendar"],["today","⚡","Azi"],["summary","📊","Sumar"]].map(([t,icon,label])=>(
-            <button key={t} style={S.tab(tab===t)} onClick={()=>{setTab(t);setSelectedClient(null);}}>{icon} {label}</button>
+            <button key={t} style={S.tab(tab===t)} onClick={()=>{setTab(t);setSelClient(null);}}>{icon} {label}</button>
           ))}
         </div>
       </div>
 
       <div style={S.main}>
-
-        {/* ── CLIENTS LIST ── */}
-        {tab==="clients"&&!selectedClient&&(
+        {/* CLIENTS LIST */}
+        {tab==="clients"&&!selClient&&(
           <>
             <div style={S.sTitle}>Clienții tăi ({clients.length})</div>
-            {clients.length===0&&(
-              <div style={{textAlign:"center",padding:"48px 24px",color:MUTED}}>
-                <div style={{fontSize:48,marginBottom:12}}>🏋️</div>
-                <div style={{fontWeight:700,fontSize:16,marginBottom:6}}>Niciun client încă</div>
-                <div style={{fontSize:14}}>Apasă "+ Client" pentru a începe</div>
-              </div>
-            )}
+            {clients.length===0&&<div style={{textAlign:"center",padding:"48px 24px",color:MUTED}}><div style={{fontSize:48,marginBottom:12}}>🏋️</div><div style={{fontWeight:700,fontSize:16,marginBottom:6}}>Niciun client încă</div><div style={{fontSize:14}}>Apasă "+ Client" pentru a începe</div></div>}
             {clients.map(c=>{
               const days=daysUntil(c.nextDue),overdue=days!==null&&days<0,soon=days!==null&&days>=0&&days<=5;
               return (
-                <div key={c.id} style={{...S.card,cursor:"pointer",border:`1px solid ${overdue?"#FF6B6B50":BORDER}`}} onClick={()=>setSelectedClient(c.id)}>
+                <div key={c.id} style={{...S.card,cursor:"pointer",border:`1px solid ${overdue?"#FF6B6B50":BORDER}`}} onClick={()=>{setSelClient(c.id);setClientTab("info");}}>
                   <div style={S.sb}>
-                    <div style={S.row}>
-                      <div style={S.avatar(c.gender)}>{genderEmoji(c.gender)}</div>
-                      <div><div style={{fontSize:15,fontWeight:700}}>{c.name}</div><div style={{fontSize:12,color:MUTED}}>{c.age?`${c.age} ani`:""} · {c.gender}</div></div>
-                    </div>
+                    <div style={S.row}><div style={S.avatar(c.gender)}>{genderEmoji(c.gender)}</div><div><div style={{fontSize:15,fontWeight:700}}>{c.name}</div><div style={{fontSize:12,color:MUTED}}>{c.age?`${c.age} ani`:""} · {c.gender}</div></div></div>
                     {c.nextDue?<span style={S.badge(overdue?ACCENT2:soon?"#FFB74D":ACCENT,overdue?`${ACCENT2}20`:soon?"#FFB74D20":`${ACCENT}20`)}>{overdue?`⚠ ${Math.abs(days)}z`:days===0?"⚡ Azi":`⏳ ${days}z`}</span>:<span style={S.badge(MUTED,CARD2)}>Neplătit</span>}
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginTop:10}}>
@@ -475,122 +522,99 @@ function App({ user }) {
                     <div style={S.statBox}><div style={{fontSize:13,fontWeight:800,color:"#A29BFE"}}>{c.fee?`${c.fee} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>ABONAMENT</div></div>
                     <div style={S.statBox}><div style={{fontSize:13,fontWeight:800,color:"#FFB74D"}}>{c.sessionPrice?`${c.sessionPrice} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>PE ȘEDINȚĂ</div></div>
                   </div>
-                  {c.sessionsLeft>0&&c.totalSessions>0&&(
-                    <div style={{height:5,borderRadius:3,background:BORDER,marginTop:10,overflow:"hidden"}}>
-                      <div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(c.sessionsLeft/c.totalSessions)*100)}%`,background:ACCENT}}/>
-                    </div>
-                  )}
+                  {c.sessionsLeft>0&&c.totalSessions>0&&<div style={{height:5,borderRadius:3,background:BORDER,marginTop:10,overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(c.sessionsLeft/c.totalSessions)*100)}%`,background:ACCENT}}/></div>}
                 </div>
               );
             })}
           </>
         )}
 
-        {/* ── CLIENT DETAIL ── */}
-        {tab==="clients"&&selectedClient&&client&&(()=>{
+        {/* CLIENT DETAIL */}
+        {tab==="clients"&&selClient&&client&&(()=>{
           const sessionDates=(client.history||[]).filter(h=>h.type==="session").map(h=>h.date);
           const paymentDates=(client.history||[]).filter(h=>h.type==="payment").map(h=>h.date);
           const days=daysUntil(client.nextDue),overdue=days!==null&&days<0;
           const totalEarned=(client.history||[]).filter(h=>h.type==="payment").reduce((s,h)=>s+Number(h.amount||0),0);
           return (
             <>
-              <button style={{...S.btn("ghost"),marginBottom:14,fontSize:13}} onClick={()=>setSelectedClient(null)}>← Înapoi</button>
+              <button style={{...S.btn("ghost"),marginBottom:14,fontSize:13}} onClick={()=>setSelClient(null)}>← Înapoi</button>
+              {/* Profile card */}
               <div style={S.card}>
                 <div style={S.sb}>
-                  <div style={S.row}>
-                    <div style={S.avatar(client.gender)}>{genderEmoji(client.gender)}</div>
-                    <div><div style={{fontSize:19,fontWeight:800}}>{client.name}</div><div style={{fontSize:12,color:MUTED}}>{client.age?`${client.age} ani`:""} · {client.gender}</div></div>
-                  </div>
-                  <button style={S.btn("ghost")} onClick={()=>openEditClient(client)}>✏️</button>
+                  <div style={S.row}><div style={S.avatar(client.gender)}>{genderEmoji(client.gender)}</div><div><div style={{fontSize:19,fontWeight:800}}>{client.name}</div><div style={{fontSize:12,color:MUTED}}>{client.age?`${client.age} ani`:""} · {client.gender}{client.email?` · ${client.email}`:""}</div></div></div>
+                  <button style={S.btn("ghost")} onClick={()=>openEdit(client)}>✏️</button>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginTop:10}}>
                   <div style={S.statBox}><div style={{fontSize:17,fontWeight:800,color:ACCENT}}>{client.sessionsLeft??0}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>ȘEDINȚE</div></div>
                   <div style={S.statBox}><div style={{fontSize:13,fontWeight:800,color:"#A29BFE"}}>{client.fee?`${client.fee} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>ABONAMENT</div></div>
                   <div style={S.statBox}><div style={{fontSize:13,fontWeight:800,color:"#FFB74D"}}>{client.sessionPrice?`${client.sessionPrice} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>PE ȘEDINȚĂ</div></div>
                 </div>
-                {client.sessionsLeft>0&&client.totalSessions>0&&(
-                  <>
-                    <div style={{height:5,borderRadius:3,background:BORDER,marginTop:12,overflow:"hidden"}}>
-                      <div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(client.sessionsLeft/client.totalSessions)*100)}%`,background:ACCENT}}/>
-                    </div>
-                    <div style={{fontSize:11,color:MUTED,marginTop:4}}>{client.sessionsLeft} din {client.totalSessions} ședințe rămase</div>
-                  </>
-                )}
-                {client.nextDue&&(
-                  <><div style={S.divider}/>
-                  <div style={S.sb}>
-                    <div><div style={{fontSize:11,color:MUTED,fontWeight:600}}>URMĂTOAREA PLATĂ</div><div style={{fontSize:15,fontWeight:700,marginTop:2}}>{formatDate(client.nextDue)}</div></div>
-                    <span style={S.badge(overdue?ACCENT2:days<=5?"#FFB74D":ACCENT,overdue?`${ACCENT2}20`:days<=5?"#FFB74D20":`${ACCENT}20`)}>{overdue?`${Math.abs(days)}z întârziere`:days===0?"Scade azi":`${days} zile`}</span>
-                  </div></>
-                )}
+                {client.sessionsLeft>0&&client.totalSessions>0&&<><div style={{height:5,borderRadius:3,background:BORDER,marginTop:12,overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(client.sessionsLeft/client.totalSessions)*100)}%`,background:ACCENT}}/></div><div style={{fontSize:11,color:MUTED,marginTop:4}}>{client.sessionsLeft} din {client.totalSessions} ședințe rămase</div></>}
+                {client.nextDue&&<><div style={S.divider}/><div style={S.sb}><div><div style={{fontSize:11,color:MUTED,fontWeight:600}}>URMĂTOAREA PLATĂ</div><div style={{fontSize:15,fontWeight:700,marginTop:2}}>{formatDate(client.nextDue)}</div></div><span style={S.badge(overdue?ACCENT2:days<=5?"#FFB74D":ACCENT,overdue?`${ACCENT2}20`:days<=5?"#FFB74D20":`${ACCENT}20`)}>{overdue?`${Math.abs(days)}z întârziere`:days===0?"Scade azi":`${days} zile`}</span></div></>}
               </div>
-
-              <div style={{display:"flex",gap:8,marginBottom:16}}>
+              {/* Action buttons */}
+              <div style={{display:"flex",gap:8,marginBottom:14}}>
                 <button style={{...S.btn("primary"),flex:1}} onClick={()=>openMarkPaid(client.id)}>💳 Plată</button>
                 <button style={{...S.btn("success"),flex:1}} onClick={()=>openMarkSession(client.id)}>✅ Ședință</button>
               </div>
-
-              <div style={S.sTitle}>📅 Calendar prezență</div>
-              <div style={{marginBottom:14}}><MiniCalendar sessionDates={sessionDates} paymentDates={paymentDates}/></div>
-
-              <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                <div style={{fontSize:13,color:MUTED,fontWeight:600}}>Total câștigat de la {client.name}</div>
-                <div style={{fontSize:20,fontWeight:900,color:"#A29BFE"}}>{totalEarned} RON</div>
+              {/* Sub-tabs */}
+              <div style={{display:"flex",gap:4,background:`${CARD2}80`,borderRadius:10,padding:3,marginBottom:16}}>
+                {[["info","📋 Info"],["measures","📏 Măsurători"],["photos","📸 Poze"]].map(([t,label])=>(
+                  <button key={t} style={S.tab(clientTab===t)} onClick={()=>setClientTab(t)}>{label}</button>
+                ))}
               </div>
-
-              <div style={S.sTitle}>Istoric activitate</div>
-              {(client.history||[]).length===0&&<div style={{color:MUTED,fontSize:14,padding:"10px 0"}}>Nicio activitate încă</div>}
-              {[...(client.history||[])].reverse().map(h=>(
-                <HistoryEntry key={h.id} h={h} clientId={client.id}/>
-              ))}
+              {/* Info tab */}
+              {clientTab==="info"&&(
+                <>
+                  <div style={S.sTitle}>📅 Calendar prezență</div>
+                  <div style={{marginBottom:14}}><MiniCalendar sessionDates={sessionDates} paymentDates={paymentDates}/></div>
+                  <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <div style={{fontSize:13,color:MUTED,fontWeight:600}}>Total câștigat</div>
+                    <div style={{fontSize:20,fontWeight:900,color:"#A29BFE"}}>{totalEarned} RON</div>
+                  </div>
+                  <div style={S.sTitle}>Istoric activitate</div>
+                  {(client.history||[]).length===0&&<div style={{color:MUTED,fontSize:14,padding:"10px 0"}}>Nicio activitate încă</div>}
+                  {[...(client.history||[])].reverse().map(h=>(
+                    <HistoryEntry key={h.id} h={h} clientId={client.id} onDelete={(eid)=>setDeleteConfirm({clientId:client.id,entryId:eid})}/>
+                  ))}
+                </>
+              )}
+              {/* Measurements tab */}
+              {clientTab==="measures"&&<MeasurementsSection clientId={client.id} trainerId={user.id} readOnly={false}/>}
+              {/* Photos tab */}
+              {clientTab==="photos"&&<ProgressPhotosSection clientId={client.id} trainerId={user.id} readOnly={false}/>}
               <div style={S.divider}/>
               <button style={{...S.btn("danger"),width:"100%"}} onClick={()=>setDeleteClientConfirm(client.id)}>🗑 Șterge client</button>
             </>
           );
         })()}
 
-        {/* ── CALENDAR TAB ── */}
+        {/* CALENDAR TAB */}
         {tab==="calendar"&&(
-          <>
-            <div style={S.sTitle}>📅 Calendar general — toți clienții</div>
-            {clients.length===0?<div style={{textAlign:"center",padding:"48px 20px",color:MUTED}}><div style={{fontSize:42,marginBottom:10}}>📅</div><div style={{fontSize:14}}>Adaugă clienți pentru a vedea calendarul</div></div>:<GlobalCalendar clients={clients}/>}
-          </>
+          <><div style={S.sTitle}>📅 Calendar general</div>{clients.length===0?<div style={{textAlign:"center",padding:"48px 20px",color:MUTED}}><div style={{fontSize:42,marginBottom:10}}>📅</div><div style={{fontSize:14}}>Adaugă clienți pentru a vedea calendarul</div></div>:<GlobalCalendar clients={clients}/>}</>
         )}
 
-        {/* ── TODAY TAB ── */}
+        {/* TODAY TAB */}
         {tab==="today"&&(
           <>
             <div style={S.sTitle}>{new Date().toLocaleDateString("ro-RO",{weekday:"long",day:"numeric",month:"long"})}</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-              <div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:12,padding:14,textAlign:"center"}}>
-                <div style={{fontSize:22,fontWeight:900,color:ACCENT}}>{todayIncome} RON</div>
-                <div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Ședințe azi</div>
-              </div>
-              <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:14,textAlign:"center"}}>
-                <div style={{fontSize:22,fontWeight:900,color:"#A29BFE"}}>{todayPaymentTotal} RON</div>
-                <div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Plăți azi</div>
-              </div>
+              <div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:12,padding:14,textAlign:"center"}}><div style={{fontSize:22,fontWeight:900,color:ACCENT}}>{todayIncome} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Ședințe azi</div></div>
+              <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:14,textAlign:"center"}}><div style={{fontSize:22,fontWeight:900,color:"#A29BFE"}}>{todayPayTotal} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Plăți azi</div></div>
             </div>
-            <div style={S.sTitle}>Ședințe ({todaySessions.length})</div>
-            {todaySessions.length===0?<div style={{color:MUTED,fontSize:14,marginBottom:12}}>Nicio ședință azi</div>:todaySessions.map(s=>(
-              <div key={s.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}>
-                <div style={S.sb}>
-                  <div style={S.row}><span>🏋️</span><div><div style={{fontWeight:600}}>{s.clientName}</div>{s.time&&<div style={{fontSize:11,color:MUTED}}>{s.time}</div>}</div></div>
-                  <span style={S.badge(ACCENT,`${ACCENT}20`)}>{s.sessionPrice} RON</span>
-                </div>
-              </div>
+            <div style={S.sTitle}>Ședințe ({todaySess.length})</div>
+            {todaySess.length===0?<div style={{color:MUTED,fontSize:14,marginBottom:12}}>Nicio ședință azi</div>:todaySess.map(s=>(
+              <div key={s.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}><div style={S.sb}><div style={S.row}><span>🏋️</span><div><div style={{fontWeight:600}}>{s.clientName}</div>{s.time&&<div style={{fontSize:11,color:MUTED}}>{s.time}</div>}</div></div><span style={S.badge(ACCENT,`${ACCENT}20`)}>{s.sessionPrice} RON</span></div></div>
             ))}
-            <div style={S.sTitle}>Plăți ({todayPayments.length})</div>
-            {todayPayments.length===0?<div style={{color:MUTED,fontSize:14,marginBottom:12}}>Nicio plată azi</div>:todayPayments.map(p=>(
+            <div style={S.sTitle}>Plăți ({todayPays.length})</div>
+            {todayPays.length===0?<div style={{color:MUTED,fontSize:14,marginBottom:12}}>Nicio plată azi</div>:todayPays.map(p=>(
               <div key={p.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}><div style={S.sb}><div style={S.row}><span>💳</span><span style={{fontWeight:600}}>{p.clientName}</span></div><span style={S.badge("#A29BFE","#A29BFE20")}>{p.amount} RON</span></div></div>
             ))}
             <div style={S.divider}/>
             <div style={S.sTitle}>Marchează rapid</div>
             {clients.filter(c=>c.sessionsLeft>0).map(c=>(
               <div key={c.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}>
-                <div style={S.sb}>
-                  <div style={S.row}><div style={{...S.avatar(c.gender),width:32,height:32,fontSize:15}}>{genderEmoji(c.gender)}</div><div><div style={{fontWeight:600}}>{c.name}</div><div style={{fontSize:12,color:MUTED}}>{c.sessionsLeft} rămase</div></div></div>
-                  <button style={S.btn("success")} onClick={()=>openMarkSession(c.id)}>✅ Done</button>
+                <div style={S.sb}><div style={S.row}><div style={{...S.avatar(c.gender),width:32,height:32,fontSize:15}}>{genderEmoji(c.gender)}</div><div><div style={{fontWeight:600}}>{c.name}</div><div style={{fontSize:12,color:MUTED}}>{c.sessionsLeft} rămase</div></div></div><button style={S.btn("success")} onClick={()=>openMarkSession(c.id)}>✅ Done</button>
                 </div>
               </div>
             ))}
@@ -598,19 +622,13 @@ function App({ user }) {
           </>
         )}
 
-        {/* ── SUMMARY TAB ── */}
+        {/* SUMMARY TAB */}
         {tab==="summary"&&(
           <>
             <div style={S.sTitle}>Prezentare financiară</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-              <div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:12,padding:14,textAlign:"center"}}>
-                <div style={{fontSize:20,fontWeight:900,color:ACCENT}}>{todayIncome} RON</div>
-                <div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Azi</div>
-              </div>
-              <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:14,textAlign:"center"}}>
-                <div style={{fontSize:20,fontWeight:900,color:"#A29BFE"}}>{monthIncome} RON</div>
-                <div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Luna aceasta</div>
-              </div>
+              <div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:12,padding:14,textAlign:"center"}}><div style={{fontSize:20,fontWeight:900,color:ACCENT}}>{todayIncome} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Azi</div></div>
+              <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:14,textAlign:"center"}}><div style={{fontSize:20,fontWeight:900,color:"#A29BFE"}}>{monthIncome} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Luna aceasta</div></div>
             </div>
             <div style={S.sTitle}>Toți clienții</div>
             {clients.map(c=>{
@@ -618,10 +636,7 @@ function App({ user }) {
               const totalEarned=(c.history||[]).filter(h=>h.type==="payment").reduce((s,h)=>s+Number(h.amount||0),0);
               return (
                 <div key={c.id} style={S.card}>
-                  <div style={S.sb}>
-                    <div style={S.row}><div style={{...S.avatar(c.gender),width:32,height:32,fontSize:15}}>{genderEmoji(c.gender)}</div><div style={{fontWeight:700}}>{c.name}</div></div>
-                    {c.nextDue&&<span style={S.badge(overdue?ACCENT2:ACCENT,overdue?`${ACCENT2}20`:`${ACCENT}20`)}>{overdue?`${Math.abs(days)}z întârziere`:`${days}z`}</span>}
-                  </div>
+                  <div style={S.sb}><div style={S.row}><div style={{...S.avatar(c.gender),width:32,height:32,fontSize:15}}>{genderEmoji(c.gender)}</div><div style={{fontWeight:700}}>{c.name}</div></div>{c.nextDue&&<span style={S.badge(overdue?ACCENT2:ACCENT,overdue?`${ACCENT2}20`:`${ACCENT}20`)}>{overdue?`${Math.abs(days)}z întârziere`:`${days}z`}</span>}</div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10}}>
                     {[[c.sessionsLeft??0,"ȘEDINȚE",ACCENT],[c.fee?`${c.fee} RON`:"—","ABONAMENT","#FFB74D"],[`${totalEarned} RON`,"TOTAL","#A29BFE"]].map(([v,l,col])=>(
                       <div key={l} style={{background:CARD2,borderRadius:8,padding:"8px 5px",textAlign:"center"}}><div style={{fontSize:13,fontWeight:800,color:col}}>{v}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>{l}</div></div>
@@ -635,9 +650,7 @@ function App({ user }) {
         )}
       </div>
 
-      {/* ══ MODALS ══ */}
-
-      {/* Add/Edit Client */}
+      {/* MODALS */}
       {modal?.type&&(modal.type==="addClient"||modal.type==="editClient")&&editForm&&(
         <div style={S.modal} onClick={()=>setModal(null)}>
           <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
@@ -648,6 +661,8 @@ function App({ user }) {
               <div><label style={S.label}>Vârstă</label><input style={S.input} placeholder="ex. 28" type="number" value={editForm.age} onChange={e=>setEditForm(p=>({...p,age:e.target.value}))}/></div>
               <div><label style={S.label}>Gen</label><select style={{...S.input,appearance:"none"}} value={editForm.gender} onChange={e=>setEditForm(p=>({...p,gender:e.target.value}))}>{GENDERS.map(g=><option key={g}>{g}</option>)}</select></div>
             </div>
+            <label style={S.label}>Email client (pentru conectare cont)</label>
+            <input style={{...S.input,marginBottom:12}} placeholder="client@email.com" type="email" value={editForm.email||""} onChange={e=>setEditForm(p=>({...p,email:e.target.value}))}/>
             <div style={S.divider}/>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
               <div><label style={S.label}>Abonament (RON)</label><input style={S.input} placeholder="ex. 400" type="number" value={editForm.fee} onChange={e=>setEditForm(p=>({...p,fee:e.target.value}))}/></div>
@@ -663,164 +678,69 @@ function App({ user }) {
         </div>
       )}
 
-      {/* ── MARK SESSION MODAL ── */}
       {modal?.type==="markSession"&&(()=>{
         const c=clients.find(x=>x.id===modal.clientId);
         return (
           <div style={S.modal} onClick={()=>setModal(null)}>
             <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
-              {/* Header */}
-              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-                <div style={{width:38,height:38,borderRadius:10,background:`${ACCENT}20`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🏋️</div>
-                <div>
-                  <div style={{fontSize:18,fontWeight:800}}>Înregistrează ședință</div>
-                  <div style={{fontSize:13,color:MUTED}}>{c?.name} · {c?.sessionsLeft} rămase</div>
-                </div>
-              </div>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}><div style={{width:38,height:38,borderRadius:10,background:`${ACCENT}20`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🏋️</div><div><div style={{fontSize:18,fontWeight:800}}>Înregistrează ședință</div><div style={{fontSize:13,color:MUTED}}>{c?.name} · {c?.sessionsLeft} rămase</div></div></div>
               <div style={S.divider}/>
-
-              {/* Date */}
               <label style={S.label}>📅 Data ședinței</label>
-              <input
-                type="date"
-                style={{...S.input,marginBottom:14,colorScheme:"dark"}}
-                value={sessDate}
-                onChange={e=>setSessDate(e.target.value)}
-              />
-
-              {/* Time */}
+              <input type="date" style={{...S.input,marginBottom:14,colorScheme:"dark"}} value={sessDate} onChange={e=>setSessDate(e.target.value)}/>
               <label style={S.label}>🕐 Ora ședinței</label>
-              <input
-                type="time"
-                style={{...S.input,marginBottom:18,colorScheme:"dark"}}
-                value={sessTime}
-                onChange={e=>setSessTime(e.target.value)}
-              />
-
-              {/* Preview */}
+              <input type="time" style={{...S.input,marginBottom:18,colorScheme:"dark"}} value={sessTime} onChange={e=>setSessTime(e.target.value)}/>
               <div style={{background:CARD2,borderRadius:10,padding:"12px 14px",marginBottom:18,border:`1px solid ${BORDER}`}}>
                 <div style={{fontSize:12,color:MUTED,marginBottom:4,fontWeight:600}}>REZUMAT</div>
                 <div style={{fontSize:14,fontWeight:700}}>{c?.name}</div>
-                <div style={{fontSize:13,color:MUTED,marginTop:2}}>
-                  {sessDate ? formatDate(sessDate) : "—"}{sessTime ? ` la ${sessTime}` : ""}
-                </div>
+                <div style={{fontSize:13,color:MUTED,marginTop:2}}>{sessDate?formatDate(sessDate):"—"}{sessTime?` la ${sessTime}`:""}</div>
                 {c?.sessionPrice>0&&<div style={{fontSize:13,color:ACCENT,marginTop:4,fontWeight:700}}>Valoare: {c.sessionPrice} RON</div>}
               </div>
-
-              <div style={{display:"flex",gap:8}}>
-                <button style={{...S.btn(),flex:1}} onClick={()=>setModal(null)}>Anulează</button>
-                <button style={{...S.btn("primary"),flex:2}} onClick={confirmSession} disabled={!sessDate}>✅ Confirmă ședința</button>
-              </div>
+              <div style={{display:"flex",gap:8}}><button style={{...S.btn(),flex:1}} onClick={()=>setModal(null)}>Anulează</button><button style={{...S.btn("primary"),flex:2}} onClick={confirmSession} disabled={!sessDate}>✅ Confirmă ședința</button></div>
             </div>
           </div>
         );
       })()}
 
-      {/* ── MARK PAID MODAL ── */}
       {modal?.type==="markPaid"&&(()=>{
         const c=clients.find(x=>x.id===modal.clientId);
-        const nextDuePreview = payDate && payDueDays ? addDays(payDate, payDueDays) : null;
+        const preview=payDate&&payDueDays?addDays(payDate,payDueDays):null;
         return (
           <div style={S.modal} onClick={()=>setModal(null)}>
             <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
-              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-                <div style={{width:38,height:38,borderRadius:10,background:"#A29BFE20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>💳</div>
-                <div>
-                  <div style={{fontSize:18,fontWeight:800}}>Înregistrează plată</div>
-                  <div style={{fontSize:13,color:MUTED}}>{c?.name}</div>
-                </div>
-              </div>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}><div style={{width:38,height:38,borderRadius:10,background:"#A29BFE20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>💳</div><div><div style={{fontSize:18,fontWeight:800}}>Înregistrează plată</div><div style={{fontSize:13,color:MUTED}}>{c?.name}</div></div></div>
               <div style={S.divider}/>
-
-              {/* Payment date */}
               <label style={S.label}>📅 Data plății</label>
-              <input
-                type="date"
-                style={{...S.input,marginBottom:14,colorScheme:"dark"}}
-                value={payDate}
-                onChange={e=>setPayDate(e.target.value)}
-              />
-
+              <input type="date" style={{...S.input,marginBottom:14,colorScheme:"dark"}} value={payDate} onChange={e=>setPayDate(e.target.value)}/>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-                <div>
-                  <label style={S.label}>Sumă (RON)</label>
-                  <input style={S.input} type="number" placeholder="ex. 400" value={payAmount} onChange={e=>setPayAmount(e.target.value)}/>
-                </div>
-                <div>
-                  <label style={S.label}>Ședințe cumpărate</label>
-                  <input style={S.input} type="number" placeholder="ex. 8" value={paySessions} onChange={e=>setPaySessions(e.target.value)}/>
-                </div>
+                <div><label style={S.label}>Sumă (RON)</label><input style={S.input} type="number" placeholder="ex. 400" value={payAmount} onChange={e=>setPayAmount(e.target.value)}/></div>
+                <div><label style={S.label}>Ședințe cumpărate</label><input style={S.input} type="number" placeholder="ex. 8" value={paySessions} onChange={e=>setPaySessions(e.target.value)}/></div>
               </div>
-
-              <label style={S.label}>⏳ Scadență următoare (zile)</label>
+              <label style={S.label}>⏳ Scadență (zile)</label>
               <input style={{...S.input,marginBottom:12}} type="number" placeholder="ex. 30" value={payDueDays} onChange={e=>setPayDueDays(Number(e.target.value))}/>
-
-              {/* Preview */}
-              {nextDuePreview&&(
-                <div style={{background:CARD2,borderRadius:10,padding:"12px 14px",marginBottom:18,border:`1px solid ${BORDER}`}}>
-                  <div style={{fontSize:12,color:MUTED,marginBottom:4,fontWeight:600}}>REZUMAT</div>
-                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                    <div>
-                      <div style={{fontSize:13,color:MUTED}}>Data plății</div>
-                      <div style={{fontSize:14,fontWeight:700}}>{formatDate(payDate)}</div>
-                    </div>
-                    <div style={{textAlign:"right"}}>
-                      <div style={{fontSize:13,color:MUTED}}>Următoarea scadență</div>
-                      <div style={{fontSize:14,fontWeight:700,color:ACCENT}}>{formatDate(nextDuePreview)}</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div style={{display:"flex",gap:8}}>
-                <button style={{...S.btn(),flex:1}} onClick={()=>setModal(null)}>Anulează</button>
-                <button style={{...S.btn("primary"),flex:2}} onClick={confirmPayment}>✅ Confirmă plata</button>
-              </div>
+              {preview&&<div style={{background:CARD2,borderRadius:10,padding:"12px 14px",marginBottom:18,border:`1px solid ${BORDER}`}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:13,color:MUTED}}>Data plății</div><div style={{fontSize:14,fontWeight:700}}>{formatDate(payDate)}</div></div><div style={{textAlign:"right"}}><div style={{fontSize:13,color:MUTED}}>Scadența</div><div style={{fontSize:14,fontWeight:700,color:ACCENT}}>{formatDate(preview)}</div></div></div></div>}
+              <div style={{display:"flex",gap:8}}><button style={{...S.btn(),flex:1}} onClick={()=>setModal(null)}>Anulează</button><button style={{...S.btn("primary"),flex:2}} onClick={confirmPayment}>✅ Confirmă plata</button></div>
             </div>
           </div>
         );
       })()}
 
-      {/* ── DELETE CLIENT CONFIRM ── */}
       {deleteClientConfirm&&(()=>{
-        const c = clients.find(x=>x.id===deleteClientConfirm);
+        const c=clients.find(x=>x.id===deleteClientConfirm);
         return (
           <div style={S.modal} onClick={()=>setDeleteClientConfirm(null)}>
             <div style={{...S.modalBox,padding:"28px 20px 36px"}} onClick={e=>e.stopPropagation()}>
-              <div style={{textAlign:"center",marginBottom:20}}>
-                <div style={{fontSize:42,marginBottom:12}}>⚠️</div>
-                <div style={{fontSize:18,fontWeight:800,marginBottom:8}}>Ștergi clientul?</div>
-                <div style={{fontSize:14,color:MUTED,lineHeight:1.5}}>
-                  Ești sigur că vrei să ștergi<br/>
-                  <strong style={{color:TEXT}}>{c?.name}</strong>?<br/>
-                  Toate datele și istoricul vor fi pierdute definitiv.
-                </div>
-              </div>
-              <div style={{display:"flex",gap:8}}>
-                <button style={{...S.btn(),flex:1}} onClick={()=>setDeleteClientConfirm(null)}>Anulează</button>
-                <button
-                  style={{...S.btn("danger"),flex:1,justifyContent:"center",background:ACCENT2,color:"#fff"}}
-                  onClick={()=>{ deleteClient(deleteClientConfirm); setDeleteClientConfirm(null); }}
-                >🗑 Da, șterge</button>
-              </div>
+              <div style={{textAlign:"center",marginBottom:20}}><div style={{fontSize:42,marginBottom:12}}>⚠️</div><div style={{fontSize:18,fontWeight:800,marginBottom:8}}>Ștergi clientul?</div><div style={{fontSize:14,color:MUTED,lineHeight:1.5}}>Ești sigur că vrei să ștergi<br/><strong style={{color:TEXT}}>{c?.name}</strong>?<br/>Toate datele și istoricul vor fi pierdute definitiv.</div></div>
+              <div style={{display:"flex",gap:8}}><button style={{...S.btn(),flex:1}} onClick={()=>setDeleteClientConfirm(null)}>Anulează</button><button style={{...S.btn("danger"),flex:1,justifyContent:"center",background:ACCENT2,color:"#fff"}} onClick={()=>{deleteClient(deleteClientConfirm);setDeleteClientConfirm(null);}}>🗑 Da, șterge</button></div>
             </div>
           </div>
         );
       })()}
 
-      {/* ── DELETE ENTRY CONFIRM ── */}
       {deleteConfirm&&(
         <div style={S.modal} onClick={()=>setDeleteConfirm(null)}>
           <div style={{...S.modalBox,padding:"24px 20px 32px"}} onClick={e=>e.stopPropagation()}>
-            <div style={{textAlign:"center",marginBottom:16}}>
-              <div style={{fontSize:36,marginBottom:10}}>🗑️</div>
-              <div style={{fontSize:17,fontWeight:800,marginBottom:6}}>Ștergi această înregistrare?</div>
-              <div style={{fontSize:13,color:MUTED}}>Dacă este o ședință, ședința va fi restituită clientului.</div>
-            </div>
-            <div style={{display:"flex",gap:8}}>
-              <button style={{...S.btn(),flex:1}} onClick={()=>setDeleteConfirm(null)}>Anulează</button>
-              <button style={{...S.btn("danger"),flex:1,justifyContent:"center"}} onClick={()=>deleteEntry(deleteConfirm.clientId,deleteConfirm.entryId)}>✕ Șterge</button>
-            </div>
+            <div style={{textAlign:"center",marginBottom:16}}><div style={{fontSize:36,marginBottom:10}}>🗑️</div><div style={{fontSize:17,fontWeight:800,marginBottom:6}}>Ștergi această înregistrare?</div><div style={{fontSize:13,color:MUTED}}>Dacă este o ședință, ședința va fi restituită clientului.</div></div>
+            <div style={{display:"flex",gap:8}}><button style={{...S.btn(),flex:1}} onClick={()=>setDeleteConfirm(null)}>Anulează</button><button style={{...S.btn("danger"),flex:1,justifyContent:"center"}} onClick={()=>deleteEntry(deleteConfirm.clientId,deleteConfirm.entryId)}>✕ Șterge</button></div>
           </div>
         </div>
       )}
@@ -828,99 +748,219 @@ function App({ user }) {
   );
 }
 
-// ══════════════════════════════ AUTH SCREEN ══════════════════════════════
-function AuthScreen({ onAuth }) {
-  const [mode, setMode] = useState("login"); // "login" | "register"
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+// ─── CLIENT APP ───────────────────────────────────────────────────────────────
+function ClientApp({ user, clientCard }) {
+  const S=useS();
+  const [tab,setTab]=useState("dashboard");
 
-  const ACCENT = "#00E5A0";
-  const BG = "#0D0F14";
-  const CARD = "#161A23";
-  const CARD2 = "#1E2330";
-  const BORDER = "#2A3040";
-  const TEXT = "#E8ECF4";
-  const MUTED = "#6B7590";
-  const ACCENT2 = "#FF6B6B";
+  if (!clientCard) {
+    return (
+      <div style={{...S.app,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,textAlign:"center"}}>
+        <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+        <div style={{fontSize:48,marginBottom:16}}>🔗</div>
+        <div style={{fontSize:18,fontWeight:800,marginBottom:8}}>Cont nelegat</div>
+        <div style={{fontSize:14,color:MUTED,lineHeight:1.6,marginBottom:24}}>Contul tău nu este încă legat de un antrenor. Contactează antrenorul tău și asigură-te că a adăugat adresa ta de email (<strong style={{color:TEXT}}>{user.email}</strong>) în profilul tău de client.</div>
+        <button style={S.btn("ghost")} onClick={()=>supabase.auth.signOut()}>⏻ Deconectare</button>
+      </div>
+    );
+  }
+
+  const sessionDates=(clientCard.history||[]).filter(h=>h.type==="session").map(h=>h.date);
+  const paymentDates=(clientCard.history||[]).filter(h=>h.type==="payment").map(h=>h.date);
+  const lastSession=[...(clientCard.history||[])].filter(h=>h.type==="session").sort((a,b)=>b.date.localeCompare(a.date))[0];
+  const days=daysUntil(clientCard.nextDue);
+  const overdue=days!==null&&days<0;
+
+  return (
+    <div style={S.app}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+      {/* HEADER */}
+      <div style={S.header}>
+        <div style={S.sb}>
+          <div style={S.row}>
+            <div style={{width:34,height:34,borderRadius:9,background:`linear-gradient(135deg,${ACCENT},#00B87A)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}}>💪</div>
+            <div><div style={{fontSize:17,fontWeight:800,letterSpacing:"-0.3px"}}>{clientCard.name}</div><div style={{fontSize:10,color:MUTED,letterSpacing:"0.5px",textTransform:"uppercase"}}>Cont Client</div></div>
+          </div>
+          <button onClick={()=>supabase.auth.signOut()} style={{background:"transparent",border:`1px solid ${BORDER}`,borderRadius:9,padding:"6px 10px",color:MUTED,cursor:"pointer",fontSize:13,fontWeight:700}}>⏻</button>
+        </div>
+        <div style={S.navTabs}>
+          {[["dashboard","🏠","Acasă"],["calendar","📅","Calendar"],["measures","📏","Măsurători"],["photos","📸","Poze"]].map(([t,icon,label])=>(
+            <button key={t} style={S.tab(tab===t)} onClick={()=>setTab(t)}>{icon} {label}</button>
+          ))}
+        </div>
+      </div>
+
+      <div style={S.main}>
+        {/* DASHBOARD */}
+        {tab==="dashboard"&&(
+          <>
+            <div style={S.sTitle}>Rezumatul tău</div>
+            {/* Sessions left - big */}
+            <div style={{background:`linear-gradient(135deg,${ACCENT}20,${ACCENT}08)`,border:`1px solid ${ACCENT}40`,borderRadius:20,padding:"24px 20px",marginBottom:12,textAlign:"center"}}>
+              <div style={{fontSize:64,fontWeight:900,color:ACCENT,lineHeight:1}}>{clientCard.sessionsLeft??0}</div>
+              <div style={{fontSize:13,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginTop:6}}>Ședințe rămase</div>
+              {clientCard.sessionsLeft>0&&clientCard.totalSessions>0&&(
+                <div style={{height:6,borderRadius:3,background:BORDER,marginTop:14,overflow:"hidden"}}>
+                  <div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(clientCard.sessionsLeft/clientCard.totalSessions)*100)}%`,background:ACCENT}}/>
+                </div>
+              )}
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
+              {/* Next payment */}
+              <div style={{background:CARD,borderRadius:14,padding:14,border:`1px solid ${overdue?"#FF6B6B50":BORDER}`}}>
+                <div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:6}}>Următoarea plată</div>
+                {clientCard.nextDue?<><div style={{fontSize:14,fontWeight:800,color:overdue?ACCENT2:TEXT}}>{formatDate(clientCard.nextDue)}</div><div style={{fontSize:11,color:overdue?ACCENT2:MUTED,marginTop:4,fontWeight:600}}>{overdue?`${Math.abs(days)}z întârziere`:days===0?"Scade azi":`${days} zile`}</div></>:<div style={{fontSize:13,color:MUTED}}>—</div>}
+              </div>
+              {/* Last session */}
+              <div style={{background:CARD,borderRadius:14,padding:14,border:`1px solid ${BORDER}`}}>
+                <div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:6}}>Ultima ședință</div>
+                {lastSession?<><div style={{fontSize:14,fontWeight:800}}>{formatDate(lastSession.date)}</div><div style={{fontSize:11,color:MUTED,marginTop:4}}>{lastSession.time||""}</div></>:<div style={{fontSize:13,color:MUTED}}>—</div>}
+              </div>
+            </div>
+
+            {/* Session + payment history */}
+            <div style={S.sTitle}>Istoric activitate</div>
+            <div style={{background:CARD,borderRadius:16,border:`1px solid ${BORDER}`,overflow:"hidden"}}>
+              {(clientCard.history||[]).length===0?<div style={{padding:16,color:MUTED,fontSize:14}}>Nicio activitate încă</div>
+                :[...(clientCard.history||[])].reverse().slice(0,10).map((h,i,arr)=>(
+                  <div key={h.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:i<arr.length-1?`1px solid ${BORDER}`:"none"}}>
+                    <div style={S.row}>
+                      <span style={{fontSize:17}}>{h.type==="payment"?"💳":"🏋️"}</span>
+                      <div><div style={{fontSize:13,fontWeight:600}}>{h.note}</div><div style={{fontSize:11,color:MUTED}}>{formatDateTime(h.date,h.time)}</div></div>
+                    </div>
+                    {h.type==="payment"&&<span style={S.badge(ACCENT,`${ACCENT}20`)}>+{h.amount} RON</span>}
+                    {h.type==="session"&&h.sessionPrice>0&&<span style={S.badge("#A29BFE","#A29BFE20")}>{h.sessionPrice} RON</span>}
+                  </div>
+                ))}
+            </div>
+          </>
+        )}
+
+        {/* CALENDAR */}
+        {tab==="calendar"&&(
+          <><div style={S.sTitle}>📅 Prezențele tale</div><MiniCalendar sessionDates={sessionDates} paymentDates={paymentDates}/></>
+        )}
+
+        {/* MEASUREMENTS */}
+        {tab==="measures"&&<MeasurementsSection clientId={clientCard.id} trainerId={null} readOnly={false}/>}
+
+        {/* PHOTOS */}
+        {tab==="photos"&&<ProgressPhotosSection clientId={clientCard.id} trainerId={null} readOnly={false}/>}
+      </div>
+    </div>
+  );
+}
+
+// ─── AUTH SCREEN ──────────────────────────────────────────────────────────────
+function AuthScreen({ onAuth }) {
+  const [mode,setMode]=useState("login");
+  const [role,setRole]=useState("client");
+  const [email,setEmail]=useState("");
+  const [password,setPassword]=useState("");
+  const [name,setName]=useState("");
+  const [trainerSecret,setTrainerSecret]=useState("");
+  const [trainerJoinCode,setTrainerJoinCode]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
+  const [success,setSuccess]=useState("");
 
   async function handleSubmit() {
     setError(""); setSuccess(""); setLoading(true);
     try {
-      if (mode === "register") {
-        const { error } = await supabase.auth.signUp({ email, password });
-        if (error) throw error;
-        setSuccess("Cont creat! Verifică emailul pentru confirmare.");
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+      if (mode==="login") {
+        const {error}=await supabase.auth.signInWithPassword({email,password});
+        if(error) throw error;
         onAuth();
+      } else {
+        // Validate trainer secret
+        if (role==="trainer"&&trainerSecret!==TRAINER_SECRET) throw new Error("Cod de antrenor incorect.");
+        // Validate trainer join code for clients
+        if (role==="client"&&!trainerJoinCode.trim()) throw new Error("Introduceți codul antrenorului.");
+        if (!name.trim()) throw new Error("Introduceți numele.");
+
+        const {data,error}=await supabase.auth.signUp({email,password,options:{data:{name,role}}});
+        if(error) throw error;
+
+        // Create profile
+        const joinCode = role==="trainer" ? genCode() : null;
+        let trainerId = null;
+        if (role==="client") {
+          const {data:trainerProfile}=await supabase.from("profiles").select("id").eq("join_code",trainerJoinCode.trim().toUpperCase()).single();
+          if(!trainerProfile) throw new Error("Codul antrenorului nu a fost găsit.");
+          trainerId=trainerProfile.id;
+        }
+        await supabase.from("profiles").insert({id:data.user.id,role,name,trainer_id:trainerId,join_code:joinCode});
+
+        // Auto-link client card by email
+        if (role==="client"&&trainerId) {
+          await supabase.from("clients").update({client_user_id:data.user.id}).eq("client_email",email).eq("user_id",trainerId);
+        }
+
+        setSuccess(role==="trainer"?"Cont antrenor creat! Verifică emailul.":"Cont client creat! Verifică emailul.");
       }
-    } catch (e) {
-      setError(e.message || "A apărut o eroare.");
-    }
+    } catch(e) { setError(e.message||"A apărut o eroare."); }
     setLoading(false);
   }
 
   return (
-    <div style={{ minHeight:"100vh", background:BG, display:"flex", alignItems:"center", justifyContent:"center", padding:20, fontFamily:"'DM Sans',sans-serif" }}>
+    <div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'DM Sans',sans-serif"}}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
-      <div style={{ width:"100%", maxWidth:400 }}>
-
-        {/* Logo */}
-        <div style={{ textAlign:"center", marginBottom:36 }}>
-          <div style={{ width:60, height:60, borderRadius:16, background:`linear-gradient(135deg,${ACCENT},#00B87A)`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, margin:"0 auto 14px" }}>💪</div>
-          <div style={{ fontSize:26, fontWeight:900, color:TEXT, letterSpacing:"-0.5px" }}>PT Tracker</div>
-          <div style={{ fontSize:13, color:MUTED, marginTop:4, textTransform:"uppercase", letterSpacing:"0.8px" }}>Personal Trainer Pro</div>
+      <div style={{width:"100%",maxWidth:400}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{width:60,height:60,borderRadius:16,background:`linear-gradient(135deg,${ACCENT},#00B87A)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,margin:"0 auto 14px"}}>💪</div>
+          <div style={{fontSize:26,fontWeight:900,color:TEXT,letterSpacing:"-0.5px"}}>PT Tracker</div>
+          <div style={{fontSize:13,color:MUTED,marginTop:4,textTransform:"uppercase",letterSpacing:"0.8px"}}>Personal Trainer Pro</div>
         </div>
 
-        {/* Card */}
-        <div style={{ background:CARD, borderRadius:20, padding:"28px 24px", border:`1px solid ${BORDER}` }}>
-
-          {/* Mode toggle */}
-          <div style={{ display:"flex", background:CARD2, borderRadius:10, padding:3, marginBottom:24 }}>
+        <div style={{background:CARD,borderRadius:20,padding:"28px 24px",border:`1px solid ${BORDER}`}}>
+          {/* Login / Register toggle */}
+          <div style={{display:"flex",background:CARD2,borderRadius:10,padding:3,marginBottom:20}}>
             {[["login","Autentificare"],["register","Înregistrare"]].map(([m,label])=>(
-              <button key={m} onClick={()=>{ setMode(m); setError(""); setSuccess(""); }} style={{ flex:1, padding:"8px 0", borderRadius:8, border:"none", cursor:"pointer", fontSize:13, fontWeight:700, transition:"all 0.2s", background:mode===m?ACCENT:"transparent", color:mode===m?"#000":MUTED }}>
-                {label}
-              </button>
+              <button key={m} onClick={()=>{setMode(m);setError("");setSuccess("");}} style={{flex:1,padding:"8px 0",borderRadius:8,border:"none",cursor:"pointer",fontSize:13,fontWeight:700,transition:"all 0.2s",background:mode===m?ACCENT:"transparent",color:mode===m?"#000":MUTED,fontFamily:"'DM Sans',sans-serif"}}>{label}</button>
             ))}
           </div>
 
-          {/* Email */}
-          <label style={{ fontSize:12, fontWeight:700, color:MUTED, display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:"0.5px" }}>Email</label>
-          <input
-            type="email"
-            placeholder="exemplu@email.com"
-            value={email}
-            onChange={e=>setEmail(e.target.value)}
-            onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
-            style={{ width:"100%", background:CARD2, border:`1px solid ${BORDER}`, borderRadius:10, padding:"12px 14px", color:TEXT, fontSize:14, outline:"none", boxSizing:"border-box", marginBottom:14 }}
-          />
+          {/* Role selector - only on register */}
+          {mode==="register"&&(
+            <>
+              <div style={{fontSize:12,fontWeight:700,color:MUTED,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>Tip de cont</div>
+              <div style={{display:"flex",gap:8,marginBottom:16}}>
+                {[["client","🏃 Client"],["trainer","🏋️ Antrenor"]].map(([r,label])=>(
+                  <button key={r} onClick={()=>setRole(r)} style={{flex:1,padding:"10px 0",borderRadius:10,border:`2px solid ${role===r?ACCENT:BORDER}`,background:role===r?`${ACCENT}15`:CARD2,color:role===r?ACCENT:MUTED,fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.15s"}}>{label}</button>
+                ))}
+              </div>
+            </>
+          )}
 
-          {/* Password */}
-          <label style={{ fontSize:12, fontWeight:700, color:MUTED, display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:"0.5px" }}>Parolă</label>
-          <input
-            type="password"
-            placeholder="Minim 6 caractere"
-            value={password}
-            onChange={e=>setPassword(e.target.value)}
-            onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
-            style={{ width:"100%", background:CARD2, border:`1px solid ${BORDER}`, borderRadius:10, padding:"12px 14px", color:TEXT, fontSize:14, outline:"none", boxSizing:"border-box", marginBottom:20 }}
-          />
+          {/* Name - register only */}
+          {mode==="register"&&(
+            <><label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Nume complet</label>
+            <input style={{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:12,fontFamily:"'DM Sans',sans-serif"}} placeholder="Ion Popescu" value={name} onChange={e=>setName(e.target.value)}/></>
+          )}
 
-          {/* Error / Success */}
-          {error && <div style={{ background:`${ACCENT2}15`, border:`1px solid ${ACCENT2}40`, borderRadius:10, padding:"10px 14px", fontSize:13, color:ACCENT2, marginBottom:16 }}>⚠ {error}</div>}
-          {success && <div style={{ background:`${ACCENT}15`, border:`1px solid ${ACCENT}40`, borderRadius:10, padding:"10px 14px", fontSize:13, color:ACCENT, marginBottom:16 }}>✓ {success}</div>}
+          <label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Email</label>
+          <input type="email" style={{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:12,fontFamily:"'DM Sans',sans-serif"}} placeholder="exemplu@email.com" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
 
-          {/* Submit */}
-          <button
-            onClick={handleSubmit}
-            disabled={loading || !email || !password}
-            style={{ width:"100%", background:ACCENT, color:"#000", border:"none", borderRadius:12, padding:"14px", fontSize:15, fontWeight:800, cursor:loading?"not-allowed":"pointer", opacity:loading||!email||!password?0.6:1, transition:"opacity 0.2s" }}
-          >
-            {loading ? "Se procesează..." : mode==="login" ? "Intră în cont" : "Creează cont"}
+          <label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Parolă</label>
+          <input type="password" style={{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:14,fontFamily:"'DM Sans',sans-serif"}} placeholder="Minim 6 caractere" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
+
+          {/* Trainer secret code */}
+          {mode==="register"&&role==="trainer"&&(
+            <><label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>🔐 Cod secret antrenor</label>
+            <input style={{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:14,fontFamily:"'DM Sans',sans-serif"}} placeholder="Codul primit de la admin" value={trainerSecret} onChange={e=>setTrainerSecret(e.target.value)}/></>
+          )}
+
+          {/* Trainer join code for clients */}
+          {mode==="register"&&role==="client"&&(
+            <><label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>🔑 Codul antrenorului</label>
+            <input style={{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:14,fontFamily:"'DM Sans',sans-serif",textTransform:"uppercase",letterSpacing:"0.1em"}} placeholder="ex. AB12CD" value={trainerJoinCode} onChange={e=>setTrainerJoinCode(e.target.value)}/></>
+          )}
+
+          {error&&<div style={{background:`${ACCENT2}15`,border:`1px solid ${ACCENT2}40`,borderRadius:10,padding:"10px 14px",fontSize:13,color:ACCENT2,marginBottom:14}}>⚠ {error}</div>}
+          {success&&<div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:10,padding:"10px 14px",fontSize:13,color:ACCENT,marginBottom:14}}>✓ {success}</div>}
+
+          <button onClick={handleSubmit} disabled={loading||!email||!password} style={{width:"100%",background:ACCENT,color:"#000",border:"none",borderRadius:12,padding:"14px",fontSize:15,fontWeight:800,cursor:loading?"not-allowed":"pointer",opacity:loading||!email||!password?0.6:1,fontFamily:"'DM Sans',sans-serif"}}>
+            {loading?"Se procesează...":mode==="login"?"Intră în cont":role==="trainer"?"Creează cont antrenor":"Creează cont client"}
           </button>
         </div>
       </div>
@@ -928,33 +968,56 @@ function AuthScreen({ onAuth }) {
   );
 }
 
-// ══════════════════════════════ ROOT WRAPPER ══════════════════════════════
+// ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function Root() {
-  const [user, setUser] = useState(undefined); // undefined = loading, null = logged out
+  const [user,setUser]=useState(undefined);
+  const [profile,setProfile]=useState(null);
+  const [clientCard,setClientCard]=useState(null);
+  const [profileLoading,setProfileLoading]=useState(false);
 
-  useEffect(() => {
-    // Check current session on load
-    supabase.auth.getUser().then(({ data: { user } }) => setUser(user ?? null));
-
-    // Listen for login/logout changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+  useEffect(()=>{
+    supabase.auth.getUser().then(({data:{user}})=>setUser(user??null));
+    const {data:{subscription}}=supabase.auth.onAuthStateChange((_,session)=>{
+      setUser(session?.user??null);
+      if(!session) { setProfile(null); setClientCard(null); }
     });
-    return () => subscription.unsubscribe();
-  }, []);
+    return ()=>subscription.unsubscribe();
+  },[]);
 
-  // Loading state
-  if (user === undefined) {
+  useEffect(()=>{
+    if(!user) return;
+    setProfileLoading(true);
+    supabase.from("profiles").select("*").eq("id",user.id).single().then(async({data:prof})=>{
+      setProfile(prof);
+      if(prof?.role==="client") {
+        // Find client card by user_id
+        const {data:card}=await supabase.from("clients").select("data").eq("client_user_id",user.id).single();
+        if(card) { setClientCard(card.data); }
+        else {
+          // Try auto-link by email
+          const {data:byEmail}=await supabase.from("clients").select("id,data").eq("client_email",user.email).single();
+          if(byEmail){
+            await supabase.from("clients").update({client_user_id:user.id}).eq("id",byEmail.id);
+            setClientCard(byEmail.data);
+          }
+        }
+      }
+      setProfileLoading(false);
+    });
+  },[user]);
+
+  if(user===undefined||profileLoading){
     return (
-      <div style={{ minHeight:"100vh", background:"#0D0F14", display:"flex", alignItems:"center", justifyContent:"center" }}>
-        <div style={{ color:"#6B7590", fontSize:14, fontFamily:"sans-serif" }}>Se încarcă...</div>
+      <div style={{minHeight:"100vh",background:BG,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans',sans-serif"}}>
+        <div style={{fontSize:40,marginBottom:16}}>💪</div>
+        <div style={{color:ACCENT,fontSize:14,fontWeight:700}}>Se încarcă...</div>
       </div>
     );
   }
 
-  // Not logged in → show auth screen
-  if (!user) return <AuthScreen onAuth={() => supabase.auth.getUser().then(({ data: { user } }) => setUser(user))} />;
+  if(!user) return <AuthScreen onAuth={()=>supabase.auth.getUser().then(({data:{user}})=>setUser(user))}/>;
 
-  // Logged in → show the app
-  return <App user={user} />;
+  if(profile?.role==="client") return <ClientApp user={user} clientCard={clientCard}/>;
+
+  return <TrainerApp user={user}/>;
 }
