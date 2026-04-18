@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 
-const STORAGE_KEY = "pt_tracker_clients_v2";
+const STORAGE_KEY = "pt_tracker_clients_v3";
 
 function useStorage() {
   const [clients, setClientsState] = useState(() => {
@@ -26,11 +26,20 @@ function formatDate(d) {
   if (!d) return "—";
   return new Date(d).toLocaleDateString("ro-RO", { day: "2-digit", month: "short", year: "numeric" });
 }
+function formatDateTime(dateStr, timeStr) {
+  if (!dateStr) return "—";
+  const date = new Date(dateStr).toLocaleDateString("ro-RO", { day: "2-digit", month: "short", year: "numeric" });
+  return timeStr ? `${date}, ${timeStr}` : date;
+}
 function addDays(dateStr, days) {
   const d = new Date(dateStr); d.setDate(d.getDate() + days);
   return d.toISOString().split("T")[0];
 }
 function today() { return new Date().toISOString().split("T")[0]; }
+function nowTime() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
 function getDaysInMonth(year, month) { return new Date(year, month + 1, 0).getDate(); }
 function getFirstDayOfMonth(year, month) {
   const d = new Date(year, month, 1).getDay();
@@ -57,70 +66,45 @@ function MiniCalendar({ sessionDates = [], paymentDates = [] }) {
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
-
   const daysInMonth = getDaysInMonth(viewYear, viewMonth);
   const firstDay = getFirstDayOfMonth(viewYear, viewMonth);
   const todayStr = today();
-
-  const sessionSet = new Set(
-    sessionDates.filter(d => { const [y,m] = d.split("-").map(Number); return y===viewYear && m-1===viewMonth; })
-      .map(d => parseInt(d.split("-")[2]))
-  );
-  const paymentSet = new Set(
-    paymentDates.filter(d => { const [y,m] = d.split("-").map(Number); return y===viewYear && m-1===viewMonth; })
-      .map(d => parseInt(d.split("-")[2]))
-  );
-  const todayDay = (() => { const [ty,tm,td] = todayStr.split("-").map(Number); return ty===viewYear && tm-1===viewMonth ? td : null; })();
-
-  function prev() { if (viewMonth===0){setViewYear(y=>y-1);setViewMonth(11);}else setViewMonth(m=>m-1); }
-  function next() { if (viewMonth===11){setViewYear(y=>y+1);setViewMonth(0);}else setViewMonth(m=>m+1); }
-
+  const sessionSet = new Set(sessionDates.filter(d => { const [y,m]=d.split("-").map(Number); return y===viewYear&&m-1===viewMonth; }).map(d=>parseInt(d.split("-")[2])));
+  const paymentSet = new Set(paymentDates.filter(d => { const [y,m]=d.split("-").map(Number); return y===viewYear&&m-1===viewMonth; }).map(d=>parseInt(d.split("-")[2])));
+  const todayDay = (() => { const [ty,tm,td]=todayStr.split("-").map(Number); return ty===viewYear&&tm-1===viewMonth?td:null; })();
+  function prev() { if(viewMonth===0){setViewYear(y=>y-1);setViewMonth(11);}else setViewMonth(m=>m-1); }
+  function next() { if(viewMonth===11){setViewYear(y=>y+1);setViewMonth(0);}else setViewMonth(m=>m+1); }
   const cells = [];
-  for (let i=0; i<firstDay; i++) cells.push(null);
-  for (let d=1; d<=daysInMonth; d++) cells.push(d);
-
-  // Count for this month
-  const monthCount = sessionSet.size;
-  const totalSessions = sessionDates.length;
-
+  for(let i=0;i<firstDay;i++) cells.push(null);
+  for(let d=1;d<=daysInMonth;d++) cells.push(d);
   return (
-    <div style={{ background: CARD2, borderRadius: 14, padding: 14, border: `1px solid ${BORDER}` }}>
-      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom: 10 }}>
-        <button onClick={prev} style={{ background:"none", border:"none", color:MUTED, cursor:"pointer", fontSize:18, padding:"2px 8px" }}>‹</button>
+    <div style={{background:CARD2,borderRadius:14,padding:14,border:`1px solid ${BORDER}`}}>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <button onClick={prev} style={{background:"none",border:"none",color:MUTED,cursor:"pointer",fontSize:18,padding:"2px 8px"}}>‹</button>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: TEXT, textAlign:"center" }}>{MONTH_NAMES[viewMonth]} {viewYear}</div>
-          <div style={{ fontSize: 11, color: MUTED, textAlign:"center" }}>{monthCount} ședințe această lună · {totalSessions} total</div>
+          <div style={{fontSize:14,fontWeight:700,color:TEXT,textAlign:"center"}}>{MONTH_NAMES[viewMonth]} {viewYear}</div>
+          <div style={{fontSize:11,color:MUTED,textAlign:"center"}}>{sessionSet.size} ședințe această lună · {sessionDates.length} total</div>
         </div>
-        <button onClick={next} style={{ background:"none", border:"none", color:MUTED, cursor:"pointer", fontSize:18, padding:"2px 8px" }}>›</button>
+        <button onClick={next} style={{background:"none",border:"none",color:MUTED,cursor:"pointer",fontSize:18,padding:"2px 8px"}}>›</button>
       </div>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:4 }}>
-        {DAY_NAMES.map(d => <div key={d} style={{ textAlign:"center", fontSize:10, fontWeight:700, color:MUTED, padding:"2px 0" }}>{d}</div>)}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
+        {DAY_NAMES.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:MUTED,padding:"2px 0"}}>{d}</div>)}
       </div>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2 }}>
-        {cells.map((day, i) => {
-          if (!day) return <div key={`e${i}`} />;
-          const isSess = sessionSet.has(day);
-          const isPay = paymentSet.has(day);
-          const isToday = day === todayDay;
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
+        {cells.map((day,i)=>{
+          if(!day) return <div key={`e${i}`}/>;
+          const isSess=sessionSet.has(day), isPay=paymentSet.has(day), isToday=day===todayDay;
           return (
-            <div key={day} style={{
-              textAlign:"center", borderRadius:7, padding:"5px 1px",
-              background: isSess ? `${ACCENT}22` : isPay ? "#A29BFE22" : "transparent",
-              border: isToday ? `1.5px solid ${ACCENT}` : isSess ? `1px solid ${ACCENT}50` : isPay ? "1px solid #A29BFE50" : "1px solid transparent",
-            }}>
-              <div style={{ fontSize:12, fontWeight: isSess||isPay ? 700 : 400, color: isSess ? ACCENT : isPay ? "#A29BFE" : isToday ? ACCENT : MUTED }}>{day}</div>
-              {(isSess||isPay) && <div style={{ width:4, height:4, borderRadius:"50%", background: isSess ? ACCENT : "#A29BFE", margin:"1px auto 0" }} />}
+            <div key={day} style={{textAlign:"center",borderRadius:7,padding:"5px 1px",background:isSess?`${ACCENT}22`:isPay?"#A29BFE22":"transparent",border:isToday?`1.5px solid ${ACCENT}`:isSess?`1px solid ${ACCENT}50`:isPay?"1px solid #A29BFE50":"1px solid transparent"}}>
+              <div style={{fontSize:12,fontWeight:isSess||isPay?700:400,color:isSess?ACCENT:isPay?"#A29BFE":isToday?ACCENT:MUTED}}>{day}</div>
+              {(isSess||isPay)&&<div style={{width:4,height:4,borderRadius:"50%",background:isSess?ACCENT:"#A29BFE",margin:"1px auto 0"}}/>}
             </div>
           );
         })}
       </div>
-      <div style={{ display:"flex", gap:12, marginTop:10, paddingTop:8, borderTop:`1px solid ${BORDER}` }}>
-        <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:MUTED }}>
-          <div style={{ width:8, height:8, borderRadius:"50%", background:ACCENT }} /> Antrenament
-        </div>
-        <div style={{ display:"flex", alignItems:"center", gap:5, fontSize:11, color:MUTED }}>
-          <div style={{ width:8, height:8, borderRadius:"50%", background:"#A29BFE" }} /> Plată
-        </div>
+      <div style={{display:"flex",gap:12,marginTop:10,paddingTop:8,borderTop:`1px solid ${BORDER}`}}>
+        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:MUTED}}><div style={{width:8,height:8,borderRadius:"50%",background:ACCENT}}/>Antrenament</div>
+        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:MUTED}}><div style={{width:8,height:8,borderRadius:"50%",background:"#A29BFE"}}/>Plată</div>
       </div>
     </div>
   );
@@ -132,115 +116,92 @@ function GlobalCalendar({ clients }) {
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
   const [selectedDay, setSelectedDay] = useState(null);
-
   const daysInMonth = getDaysInMonth(viewYear, viewMonth);
   const firstDay = getFirstDayOfMonth(viewYear, viewMonth);
   const todayStr = today();
-
   const dayMap = {};
-  clients.forEach((c, ci) => {
+  clients.forEach((c,ci) => {
     const color = CLIENT_COLORS[ci % CLIENT_COLORS.length];
-    (c.history || []).forEach(h => {
+    (c.history||[]).forEach(h => {
       const [y,m,d] = h.date.split("-").map(Number);
-      if (y===viewYear && m-1===viewMonth) {
-        if (!dayMap[d]) dayMap[d] = [];
-        dayMap[d].push({ clientName:c.name, color, type:h.type, sessionPrice:c.sessionPrice, amount:h.amount });
+      if(y===viewYear&&m-1===viewMonth) {
+        if(!dayMap[d]) dayMap[d]=[];
+        dayMap[d].push({clientName:c.name,color,type:h.type,sessionPrice:c.sessionPrice,amount:h.amount,time:h.time});
       }
     });
   });
-
-  const todayDay = (() => { const [ty,tm,td] = todayStr.split("-").map(Number); return ty===viewYear && tm-1===viewMonth ? td : null; })();
-
-  function prev() { if (viewMonth===0){setViewYear(y=>y-1);setViewMonth(11);}else setViewMonth(m=>m-1); }
-  function next() { if (viewMonth===11){setViewYear(y=>y+1);setViewMonth(0);}else setViewMonth(m=>m+1); }
-
-  const cells = [];
-  for (let i=0; i<firstDay; i++) cells.push(null);
-  for (let d=1; d<=daysInMonth; d++) cells.push(d);
-
-  const monthSessions = Object.values(dayMap).flat().filter(e=>e.type==="session").length;
-  const monthIncome = clients.flatMap(c => (c.history||[]).filter(h=>{ const [y,m]=h.date.split("-").map(Number); return y===viewYear && m-1===viewMonth && h.type==="payment"; }).map(h=>Number(h.amount||0))).reduce((a,b)=>a+b,0);
-
-  const selectedEvents = selectedDay ? (dayMap[selectedDay]||[]) : [];
-
+  const todayDay = (() => { const [ty,tm,td]=todayStr.split("-").map(Number); return ty===viewYear&&tm-1===viewMonth?td:null; })();
+  function prev() { if(viewMonth===0){setViewYear(y=>y-1);setViewMonth(11);}else setViewMonth(m=>m-1); }
+  function next() { if(viewMonth===11){setViewYear(y=>y+1);setViewMonth(0);}else setViewMonth(m=>m+1); }
+  const cells=[];
+  for(let i=0;i<firstDay;i++) cells.push(null);
+  for(let d=1;d<=daysInMonth;d++) cells.push(d);
+  const monthSessions=Object.values(dayMap).flat().filter(e=>e.type==="session").length;
+  const monthIncome=clients.flatMap(c=>(c.history||[]).filter(h=>{const[y,m]=h.date.split("-").map(Number);return y===viewYear&&m-1===viewMonth&&h.type==="payment";}).map(h=>Number(h.amount||0))).reduce((a,b)=>a+b,0);
+  const selectedEvents=selectedDay?(dayMap[selectedDay]||[]):[];
   return (
     <div>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14 }}>
-        <div style={{ background:`${ACCENT}15`, border:`1px solid ${ACCENT}40`, borderRadius:12, padding:"12px 14px" }}>
-          <div style={{ fontSize:22, fontWeight:900, color:ACCENT }}>{monthSessions}</div>
-          <div style={{ fontSize:10, color:MUTED, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.5px" }}>Antrenamente luna</div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+        <div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:12,padding:"12px 14px"}}>
+          <div style={{fontSize:22,fontWeight:900,color:ACCENT}}>{monthSessions}</div>
+          <div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px"}}>Antrenamente luna</div>
         </div>
-        <div style={{ background:"#A29BFE15", border:"1px solid #A29BFE40", borderRadius:12, padding:"12px 14px" }}>
-          <div style={{ fontSize:22, fontWeight:900, color:"#A29BFE" }}>{monthIncome} RON</div>
-          <div style={{ fontSize:10, color:MUTED, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.5px" }}>Plăți luna</div>
+        <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:"12px 14px"}}>
+          <div style={{fontSize:22,fontWeight:900,color:"#A29BFE"}}>{monthIncome} RON</div>
+          <div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px"}}>Plăți luna</div>
         </div>
       </div>
-
-      <div style={{ background:CARD2, borderRadius:14, padding:14, border:`1px solid ${BORDER}`, marginBottom:14 }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
-          <button onClick={prev} style={{ background:"none", border:"none", color:MUTED, cursor:"pointer", fontSize:20, padding:"2px 8px" }}>‹</button>
-          <div style={{ fontSize:15, fontWeight:800, color:TEXT }}>{MONTH_NAMES[viewMonth]} {viewYear}</div>
-          <button onClick={next} style={{ background:"none", border:"none", color:MUTED, cursor:"pointer", fontSize:20, padding:"2px 8px" }}>›</button>
+      <div style={{background:CARD2,borderRadius:14,padding:14,border:`1px solid ${BORDER}`,marginBottom:14}}>
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+          <button onClick={prev} style={{background:"none",border:"none",color:MUTED,cursor:"pointer",fontSize:20,padding:"2px 8px"}}>‹</button>
+          <div style={{fontSize:15,fontWeight:800,color:TEXT}}>{MONTH_NAMES[viewMonth]} {viewYear}</div>
+          <button onClick={next} style={{background:"none",border:"none",color:MUTED,cursor:"pointer",fontSize:20,padding:"2px 8px"}}>›</button>
         </div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:2, marginBottom:6 }}>
-          {DAY_NAMES.map(d => <div key={d} style={{ textAlign:"center", fontSize:10, fontWeight:700, color:MUTED }}>{d}</div>)}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:6}}>
+          {DAY_NAMES.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:MUTED}}>{d}</div>)}
         </div>
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3 }}>
-          {cells.map((day,i) => {
-            if (!day) return <div key={`e${i}`} />;
-            const events = dayMap[day]||[];
-            const isToday = day===todayDay;
-            const isSel = day===selectedDay;
-            const dots = events.slice(0,4);
+        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
+          {cells.map((day,i)=>{
+            if(!day) return <div key={`e${i}`}/>;
+            const events=dayMap[day]||[], isToday=day===todayDay, isSel=day===selectedDay;
             return (
-              <div key={day} onClick={()=>setSelectedDay(day===selectedDay?null:day)} style={{
-                borderRadius:8, padding:"6px 2px 4px", cursor:events.length>0||isToday?"pointer":"default",
-                background: isSel ? `${ACCENT}20` : isToday ? `${ACCENT}0D` : events.length>0 ? CARD : "transparent",
-                border: isSel ? `1.5px solid ${ACCENT}` : isToday ? `1px solid ${ACCENT}60` : events.length>0 ? `1px solid ${BORDER}` : "1px solid transparent",
-                transition:"all 0.1s",
-              }}>
-                <div style={{ textAlign:"center", fontSize:12, fontWeight:events.length>0?700:400, color:isToday?ACCENT:events.length>0?TEXT:MUTED }}>{day}</div>
-                <div style={{ display:"flex", justifyContent:"center", flexWrap:"wrap", gap:2, marginTop:3, minHeight:7 }}>
-                  {dots.map((e,di)=><div key={di} style={{ width:5, height:5, borderRadius:"50%", background:e.type==="payment"?"#A29BFE":e.color }} />)}
+              <div key={day} onClick={()=>setSelectedDay(day===selectedDay?null:day)} style={{borderRadius:8,padding:"6px 2px 4px",cursor:events.length>0||isToday?"pointer":"default",background:isSel?`${ACCENT}20`:isToday?`${ACCENT}0D`:events.length>0?CARD:"transparent",border:isSel?`1.5px solid ${ACCENT}`:isToday?`1px solid ${ACCENT}60`:events.length>0?`1px solid ${BORDER}`:"1px solid transparent",transition:"all 0.1s"}}>
+                <div style={{textAlign:"center",fontSize:12,fontWeight:events.length>0?700:400,color:isToday?ACCENT:events.length>0?TEXT:MUTED}}>{day}</div>
+                <div style={{display:"flex",justifyContent:"center",flexWrap:"wrap",gap:2,marginTop:3,minHeight:7}}>
+                  {events.slice(0,4).map((e,di)=><div key={di} style={{width:5,height:5,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.color}}/>)}
                 </div>
               </div>
             );
           })}
         </div>
       </div>
-
-      {selectedDay && (
-        <div style={{ background:CARD, borderRadius:14, padding:16, border:`1px solid ${BORDER}`, marginBottom:14 }}>
-          <div style={{ fontSize:13, fontWeight:700, color:MUTED, marginBottom:10, textTransform:"uppercase", letterSpacing:"0.5px" }}>
-            {selectedDay} {MONTH_NAMES[viewMonth]} {viewYear}
-          </div>
-          {selectedEvents.length===0
-            ? <div style={{ color:MUTED, fontSize:14 }}>Nicio activitate în această zi</div>
-            : selectedEvents.map((e,i)=>(
-              <div key={i} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"9px 0", borderBottom: i<selectedEvents.length-1?`1px solid ${BORDER}`:"none" }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                  <div style={{ width:10, height:10, borderRadius:"50%", background:e.type==="payment"?"#A29BFE":e.color, flexShrink:0 }} />
+      {selectedDay&&(
+        <div style={{background:CARD,borderRadius:14,padding:16,border:`1px solid ${BORDER}`,marginBottom:14}}>
+          <div style={{fontSize:13,fontWeight:700,color:MUTED,marginBottom:10,textTransform:"uppercase",letterSpacing:"0.5px"}}>{selectedDay} {MONTH_NAMES[viewMonth]} {viewYear}</div>
+          {selectedEvents.length===0?<div style={{color:MUTED,fontSize:14}}>Nicio activitate în această zi</div>
+            :selectedEvents.map((e,i)=>(
+              <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:i<selectedEvents.length-1?`1px solid ${BORDER}`:"none"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{width:10,height:10,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.color,flexShrink:0}}/>
                   <div>
-                    <div style={{ fontSize:14, fontWeight:600 }}>{e.clientName}</div>
-                    <div style={{ fontSize:11, color:MUTED }}>{e.type==="session"?"🏋️ Antrenament":"💳 Plată"}</div>
+                    <div style={{fontSize:14,fontWeight:600}}>{e.clientName}</div>
+                    <div style={{fontSize:11,color:MUTED}}>{e.type==="session"?"🏋️ Antrenament":"💳 Plată"}{e.time?` · ${e.time}`:""}</div>
                   </div>
                 </div>
-                {e.type==="session" && e.sessionPrice>0 && <span style={{ fontSize:13, fontWeight:700, color:e.color }}>{e.sessionPrice} RON</span>}
-                {e.type==="payment" && <span style={{ fontSize:13, fontWeight:700, color:"#A29BFE" }}>{e.amount} RON</span>}
+                {e.type==="session"&&e.sessionPrice>0&&<span style={{fontSize:13,fontWeight:700,color:e.color}}>{e.sessionPrice} RON</span>}
+                {e.type==="payment"&&<span style={{fontSize:13,fontWeight:700,color:"#A29BFE"}}>{e.amount} RON</span>}
               </div>
-            ))
-          }
+            ))}
         </div>
       )}
-
-      {clients.length>0 && (
+      {clients.length>0&&(
         <>
-          <div style={{ fontSize:11, fontWeight:700, color:MUTED, textTransform:"uppercase", letterSpacing:"1px", marginBottom:8 }}>Legendă clienți</div>
-          <div style={{ display:"flex", flexWrap:"wrap", gap:7 }}>
+          <div style={{fontSize:11,fontWeight:700,color:MUTED,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>Legendă clienți</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
             {clients.map((c,ci)=>(
-              <div key={c.id} style={{ display:"flex", alignItems:"center", gap:5, background:CARD2, borderRadius:8, padding:"5px 10px", border:`1px solid ${BORDER}` }}>
-                <div style={{ width:8, height:8, borderRadius:"50%", background:CLIENT_COLORS[ci%CLIENT_COLORS.length] }} />
-                <span style={{ fontSize:12, fontWeight:600 }}>{c.name}</span>
+              <div key={c.id} style={{display:"flex",alignItems:"center",gap:5,background:CARD2,borderRadius:8,padding:"5px 10px",border:`1px solid ${BORDER}`}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:CLIENT_COLORS[ci%CLIENT_COLORS.length]}}/>
+                <span style={{fontSize:12,fontWeight:600}}>{c.name}</span>
               </div>
             ))}
           </div>
@@ -257,14 +218,25 @@ export default function App() {
   const [modal, setModal] = useState(null);
   const [editForm, setEditForm] = useState(null);
   const [selectedClient, setSelectedClient] = useState(null);
+
+  // Session modal state
+  const [sessDate, setSessDate] = useState(today());
+  const [sessTime, setSessTime] = useState(nowTime());
+
+  // Payment modal state
   const [payAmount, setPayAmount] = useState("");
   const [paySessions, setPaySessions] = useState("");
   const [payDueDays, setPayDueDays] = useState(30);
+  const [payDate, setPayDate] = useState(today());
+
+  // Confirm delete entry state
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // {clientId, entryId}
+  const [deleteClientConfirm, setDeleteClientConfirm] = useState(null); // clientId
 
   const todayStr = today();
-  const todaySessions = clients.flatMap(c => (c.history||[]).filter(h=>h.type==="session"&&h.date===todayStr).map(h=>({...h,clientName:c.name,sessionPrice:c.sessionPrice||0})));
+  const todaySessions = clients.flatMap(c=>(c.history||[]).filter(h=>h.type==="session"&&h.date===todayStr).map(h=>({...h,clientName:c.name,sessionPrice:c.sessionPrice||0})));
   const todayIncome = todaySessions.reduce((s,h)=>s+Number(h.sessionPrice||0),0);
-  const todayPayments = clients.flatMap(c => (c.history||[]).filter(h=>h.type==="payment"&&h.date===todayStr).map(h=>({...h,clientName:c.name})));
+  const todayPayments = clients.flatMap(c=>(c.history||[]).filter(h=>h.type==="payment"&&h.date===todayStr).map(h=>({...h,clientName:c.name})));
   const todayPaymentTotal = todayPayments.reduce((s,h)=>s+Number(h.amount||0),0);
   const thisMonth = todayStr.slice(0,7);
   const monthIncome = clients.flatMap(c=>(c.history||[]).filter(h=>h.type==="payment"&&h.date?.startsWith(thisMonth)).map(h=>Number(h.amount||0))).reduce((a,b)=>a+b,0);
@@ -272,36 +244,85 @@ export default function App() {
   function openAddClient() { setEditForm({id:"",name:"",age:"",gender:"Male",fee:"",sessionPrice:"",paidDate:null,dueDays:30,nextDue:null,sessionsLeft:0,totalSessions:0,history:[]}); setModal({type:"addClient"}); }
   function openEditClient(c) { setEditForm({...c}); setModal({type:"editClient"}); }
   function saveClient() {
-    if (!editForm.name.trim()) return;
-    if (modal.type==="addClient") setClients(prev=>[...prev,{...editForm,id:Date.now().toString(),history:[]}]);
+    if(!editForm.name.trim()) return;
+    if(modal.type==="addClient") setClients(prev=>[...prev,{...editForm,id:Date.now().toString(),history:[]}]);
     else setClients(prev=>prev.map(c=>c.id===editForm.id?editForm:c));
     setModal(null);
   }
   function deleteClient(id) { setClients(prev=>prev.filter(c=>c.id!==id)); setSelectedClient(null); setModal(null); }
-  function openMarkPaid(clientId) {
-    const c = clients.find(x=>x.id===clientId);
-    setPayAmount(c?.fee||""); setPaySessions(""); setPayDueDays(c?.dueDays||30);
-    setModal({type:"markPaid",clientId});
+
+  // Open session modal
+  function openMarkSession(clientId) {
+    setSessDate(today());
+    setSessTime(nowTime());
+    setModal({type:"markSession", clientId});
   }
-  function markPaid() {
+
+  // Confirm session
+  function confirmSession() {
     const clientId = modal.clientId;
     setClients(prev=>prev.map(c=>{
       if(c.id!==clientId) return c;
-      const paid=today(), nd=addDays(paid,payDueDays);
-      return {...c,paidDate:paid,nextDue:nd,dueDays:payDueDays,
-        sessionsLeft:(c.sessionsLeft||0)+Number(paySessions||0),
-        totalSessions:(c.totalSessions||0)+Number(paySessions||0),
-        fee:payAmount||c.fee,
-        history:[...(c.history||[]),{id:Date.now().toString(),type:"payment",date:paid,amount:Number(payAmount||c.fee||0),sessions:Number(paySessions||0),note:`Plată: ${paySessions} ședințe`}],
+      return {
+        ...c, sessionsLeft: Math.max(0, (c.sessionsLeft||0)-1),
+        history: [...(c.history||[]), {
+          id: Date.now().toString(), type:"session",
+          date: sessDate, time: sessTime,
+          sessionPrice: c.sessionPrice||0,
+          note:`Ședință completată`
+        }]
       };
     }));
     setModal(null);
   }
-  function markSession(clientId) {
+
+  // Open payment modal
+  function openMarkPaid(clientId) {
+    const c = clients.find(x=>x.id===clientId);
+    setPayAmount(c?.fee||"");
+    setPaySessions("");
+    setPayDueDays(c?.dueDays||30);
+    setPayDate(today());
+    setModal({type:"markPaid", clientId});
+  }
+
+  // Confirm payment
+  function confirmPayment() {
+    const clientId = modal.clientId;
     setClients(prev=>prev.map(c=>{
-      if(c.id!==clientId||c.sessionsLeft<=0) return c;
-      return {...c,sessionsLeft:c.sessionsLeft-1,history:[...(c.history||[]),{id:Date.now().toString(),type:"session",date:today(),sessionPrice:c.sessionPrice||0,note:"Ședință completată"}]};
+      if(c.id!==clientId) return c;
+      const nd = addDays(payDate, payDueDays);
+      return {
+        ...c, paidDate:payDate, nextDue:nd, dueDays:payDueDays,
+        sessionsLeft:(c.sessionsLeft||0)+Number(paySessions||0),
+        totalSessions:(c.totalSessions||0)+Number(paySessions||0),
+        fee:payAmount||c.fee,
+        history:[...(c.history||[]),{
+          id:Date.now().toString(), type:"payment",
+          date:payDate, time:"",
+          amount:Number(payAmount||c.fee||0),
+          sessions:Number(paySessions||0),
+          note:`Plată: ${paySessions} ședințe`
+        }]
+      };
     }));
+    setModal(null);
+  }
+
+  // Delete a history entry
+  function deleteEntry(clientId, entryId) {
+    setClients(prev=>prev.map(c=>{
+      if(c.id!==clientId) return c;
+      const entry = (c.history||[]).find(h=>h.id===entryId);
+      // If it was a session, restore the count
+      const sessRestore = entry?.type==="session" ? 1 : 0;
+      return {
+        ...c,
+        sessionsLeft: (c.sessionsLeft||0) + sessRestore,
+        history: (c.history||[]).filter(h=>h.id!==entryId)
+      };
+    }));
+    setDeleteConfirm(null);
   }
 
   const client = selectedClient ? clients.find(c=>c.id===selectedClient) : null;
@@ -318,17 +339,46 @@ export default function App() {
     sb:{display:"flex",alignItems:"center",justifyContent:"space-between"},
     avatar:(g)=>({width:42,height:42,borderRadius:11,background:g==="Female"?"linear-gradient(135deg,#FF6B9D,#C44569)":g==="Male"?"linear-gradient(135deg,#4ECDC4,#2980B9)":"linear-gradient(135deg,#A29BFE,#6C5CE7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:19,flexShrink:0}),
     badge:(c,bg)=>({display:"inline-flex",alignItems:"center",gap:3,padding:"3px 8px",borderRadius:6,fontSize:11,fontWeight:700,color:c,background:bg}),
-    btn:(v)=>({border:"none",cursor:"pointer",borderRadius:10,fontWeight:700,fontSize:14,transition:"all 0.15s",display:"inline-flex",alignItems:"center",gap:6,...(v==="primary"?{background:ACCENT,color:"#000",padding:"11px 20px"}:v==="danger"?{background:`${ACCENT2}20`,color:ACCENT2,padding:"8px 14px",fontSize:13}:v==="ghost"?{background:CARD2,color:TEXT,padding:"8px 14px",fontSize:13,border:`1px solid ${BORDER}`}:v==="success"?{background:`${ACCENT}20`,color:ACCENT,padding:"8px 14px",fontSize:13}:{background:CARD2,color:TEXT,padding:"11px 20px",border:`1px solid ${BORDER}`})}),
+    btn:(v)=>({border:"none",cursor:"pointer",borderRadius:10,fontWeight:700,fontSize:14,transition:"all 0.15s",display:"inline-flex",alignItems:"center",gap:6,...(v==="primary"?{background:ACCENT,color:"#000",padding:"11px 20px"}:v==="danger"?{background:`${ACCENT2}20`,color:ACCENT2,padding:"8px 14px",fontSize:13}:v==="ghost"?{background:CARD2,color:TEXT,padding:"8px 14px",fontSize:13,border:`1px solid ${BORDER}`}:v==="success"?{background:`${ACCENT}20`,color:ACCENT,padding:"8px 14px",fontSize:13}:v==="icon"?{background:"transparent",color:MUTED,padding:"4px 6px",fontSize:15,border:"none"}:{background:CARD2,color:TEXT,padding:"11px 20px",border:`1px solid ${BORDER}`})}),
     input:{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"11px 14px",color:TEXT,fontSize:14,outline:"none",boxSizing:"border-box"},
     label:{fontSize:12,fontWeight:600,color:MUTED,marginBottom:5,display:"block"},
     modal:{position:"fixed",inset:0,background:"#000000CC",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:999,backdropFilter:"blur(4px)"},
     modalBox:{background:CARD,borderRadius:"20px 20px 0 0",padding:"24px 20px 36px",width:"100%",maxWidth:500,border:`1px solid ${BORDER}`,maxHeight:"90vh",overflowY:"auto"},
     divider:{height:1,background:BORDER,margin:"12px 0"},
+    statBox:{background:CARD2,borderRadius:10,padding:"9px 6px",textAlign:"center",border:`1px solid ${BORDER}`},
   };
+
+  // ── Reusable history entry renderer ──
+  function HistoryEntry({ h, clientId }) {
+    return (
+      <div style={{...S.card,padding:"11px 14px",marginBottom:7}}>
+        <div style={S.sb}>
+          <div style={S.row}>
+            <span style={{fontSize:17}}>{h.type==="payment"?"💳":"🏋️"}</span>
+            <div>
+              <div style={{fontSize:13,fontWeight:600}}>{h.note}</div>
+              <div style={{fontSize:11,color:MUTED}}>
+                {formatDateTime(h.date, h.time)}
+              </div>
+            </div>
+          </div>
+          <div style={S.row}>
+            {h.type==="payment"&&<span style={S.badge(ACCENT,`${ACCENT}20`)}>+{h.amount} RON</span>}
+            {h.type==="session"&&h.sessionPrice>0&&<span style={S.badge("#A29BFE","#A29BFE20")}>{h.sessionPrice} RON</span>}
+            <button
+              style={{...S.btn("icon"),color:ACCENT2,marginLeft:2}}
+              onClick={()=>setDeleteConfirm({clientId,entryId:h.id})}
+              title="Șterge"
+            >✕</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={S.app}>
-      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
 
       {/* HEADER */}
       <div style={S.header}>
@@ -344,9 +394,7 @@ export default function App() {
         </div>
         <div style={S.navTabs}>
           {[["clients","👥","Clienți"],["calendar","📅","Calendar"],["today","⚡","Azi"],["summary","📊","Sumar"]].map(([t,icon,label])=>(
-            <button key={t} style={S.tab(tab===t)} onClick={()=>{setTab(t);setSelectedClient(null);}}>
-              {icon} {label}
-            </button>
+            <button key={t} style={S.tab(tab===t)} onClick={()=>{setTab(t);setSelectedClient(null);}}>{icon} {label}</button>
           ))}
         </div>
       </div>
@@ -365,7 +413,7 @@ export default function App() {
               </div>
             )}
             {clients.map(c=>{
-              const days=daysUntil(c.nextDue), overdue=days!==null&&days<0, soon=days!==null&&days>=0&&days<=5;
+              const days=daysUntil(c.nextDue),overdue=days!==null&&days<0,soon=days!==null&&days>=0&&days<=5;
               return (
                 <div key={c.id} style={{...S.card,cursor:"pointer",border:`1px solid ${overdue?"#FF6B6B50":BORDER}`}} onClick={()=>setSelectedClient(c.id)}>
                   <div style={S.sb}>
@@ -373,18 +421,16 @@ export default function App() {
                       <div style={S.avatar(c.gender)}>{genderEmoji(c.gender)}</div>
                       <div><div style={{fontSize:15,fontWeight:700}}>{c.name}</div><div style={{fontSize:12,color:MUTED}}>{c.age?`${c.age} ani`:""} · {c.gender}</div></div>
                     </div>
-                    {c.nextDue
-                      ? <span style={S.badge(overdue?ACCENT2:soon?"#FFB74D":ACCENT,overdue?`${ACCENT2}20`:soon?"#FFB74D20":`${ACCENT}20`)}>{overdue?`⚠ ${Math.abs(days)}z`:days===0?"⚡ Azi":`⏳ ${days}z`}</span>
-                      : <span style={S.badge(MUTED,CARD2)}>Neplătit</span>}
+                    {c.nextDue?<span style={S.badge(overdue?ACCENT2:soon?"#FFB74D":ACCENT,overdue?`${ACCENT2}20`:soon?"#FFB74D20":`${ACCENT}20`)}>{overdue?`⚠ ${Math.abs(days)}z`:days===0?"⚡ Azi":`⏳ ${days}z`}</span>:<span style={S.badge(MUTED,CARD2)}>Neplătit</span>}
                   </div>
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginTop:10}}>
-                    <div style={{background:CARD2,borderRadius:10,padding:"9px 6px",textAlign:"center",border:`1px solid ${BORDER}`}}><div style={{fontSize:17,fontWeight:800,color:ACCENT}}>{c.sessionsLeft??0}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>ȘEDINȚE</div></div>
-                    <div style={{background:CARD2,borderRadius:10,padding:"9px 6px",textAlign:"center",border:`1px solid ${BORDER}`}}><div style={{fontSize:13,fontWeight:800,color:"#A29BFE"}}>{c.fee?`${c.fee} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>ABONAMENT</div></div>
-                    <div style={{background:CARD2,borderRadius:10,padding:"9px 6px",textAlign:"center",border:`1px solid ${BORDER}`}}><div style={{fontSize:13,fontWeight:800,color:"#FFB74D"}}>{c.sessionPrice?`${c.sessionPrice} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>PE ȘEDINȚĂ</div></div>
+                    <div style={S.statBox}><div style={{fontSize:17,fontWeight:800,color:ACCENT}}>{c.sessionsLeft??0}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>ȘEDINȚE</div></div>
+                    <div style={S.statBox}><div style={{fontSize:13,fontWeight:800,color:"#A29BFE"}}>{c.fee?`${c.fee} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>ABONAMENT</div></div>
+                    <div style={S.statBox}><div style={{fontSize:13,fontWeight:800,color:"#FFB74D"}}>{c.sessionPrice?`${c.sessionPrice} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>PE ȘEDINȚĂ</div></div>
                   </div>
                   {c.sessionsLeft>0&&c.totalSessions>0&&(
                     <div style={{height:5,borderRadius:3,background:BORDER,marginTop:10,overflow:"hidden"}}>
-                      <div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(c.sessionsLeft/c.totalSessions)*100)}%`,background:ACCENT}} />
+                      <div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(c.sessionsLeft/c.totalSessions)*100)}%`,background:ACCENT}}/>
                     </div>
                   )}
                 </div>
@@ -397,7 +443,7 @@ export default function App() {
         {tab==="clients"&&selectedClient&&client&&(()=>{
           const sessionDates=(client.history||[]).filter(h=>h.type==="session").map(h=>h.date);
           const paymentDates=(client.history||[]).filter(h=>h.type==="payment").map(h=>h.date);
-          const days=daysUntil(client.nextDue), overdue=days!==null&&days<0;
+          const days=daysUntil(client.nextDue),overdue=days!==null&&days<0;
           const totalEarned=(client.history||[]).filter(h=>h.type==="payment").reduce((s,h)=>s+Number(h.amount||0),0);
           return (
             <>
@@ -411,20 +457,20 @@ export default function App() {
                   <button style={S.btn("ghost")} onClick={()=>openEditClient(client)}>✏️</button>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginTop:10}}>
-                  <div style={{background:CARD2,borderRadius:10,padding:"9px 6px",textAlign:"center",border:`1px solid ${BORDER}`}}><div style={{fontSize:17,fontWeight:800,color:ACCENT}}>{client.sessionsLeft??0}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>ȘEDINȚE</div></div>
-                  <div style={{background:CARD2,borderRadius:10,padding:"9px 6px",textAlign:"center",border:`1px solid ${BORDER}`}}><div style={{fontSize:13,fontWeight:800,color:"#A29BFE"}}>{client.fee?`${client.fee} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>ABONAMENT</div></div>
-                  <div style={{background:CARD2,borderRadius:10,padding:"9px 6px",textAlign:"center",border:`1px solid ${BORDER}`}}><div style={{fontSize:13,fontWeight:800,color:"#FFB74D"}}>{client.sessionPrice?`${client.sessionPrice} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>PE ȘEDINȚĂ</div></div>
+                  <div style={S.statBox}><div style={{fontSize:17,fontWeight:800,color:ACCENT}}>{client.sessionsLeft??0}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>ȘEDINȚE</div></div>
+                  <div style={S.statBox}><div style={{fontSize:13,fontWeight:800,color:"#A29BFE"}}>{client.fee?`${client.fee} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>ABONAMENT</div></div>
+                  <div style={S.statBox}><div style={{fontSize:13,fontWeight:800,color:"#FFB74D"}}>{client.sessionPrice?`${client.sessionPrice} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>PE ȘEDINȚĂ</div></div>
                 </div>
                 {client.sessionsLeft>0&&client.totalSessions>0&&(
                   <>
                     <div style={{height:5,borderRadius:3,background:BORDER,marginTop:12,overflow:"hidden"}}>
-                      <div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(client.sessionsLeft/client.totalSessions)*100)}%`,background:ACCENT}} />
+                      <div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(client.sessionsLeft/client.totalSessions)*100)}%`,background:ACCENT}}/>
                     </div>
                     <div style={{fontSize:11,color:MUTED,marginTop:4}}>{client.sessionsLeft} din {client.totalSessions} ședințe rămase</div>
                   </>
                 )}
                 {client.nextDue&&(
-                  <><div style={S.divider} />
+                  <><div style={S.divider}/>
                   <div style={S.sb}>
                     <div><div style={{fontSize:11,color:MUTED,fontWeight:600}}>URMĂTOAREA PLATĂ</div><div style={{fontSize:15,fontWeight:700,marginTop:2}}>{formatDate(client.nextDue)}</div></div>
                     <span style={S.badge(overdue?ACCENT2:days<=5?"#FFB74D":ACCENT,overdue?`${ACCENT2}20`:days<=5?"#FFB74D20":`${ACCENT}20`)}>{overdue?`${Math.abs(days)}z întârziere`:days===0?"Scade azi":`${days} zile`}</span>
@@ -434,14 +480,11 @@ export default function App() {
 
               <div style={{display:"flex",gap:8,marginBottom:16}}>
                 <button style={{...S.btn("primary"),flex:1}} onClick={()=>openMarkPaid(client.id)}>💳 Plată</button>
-                <button style={{...S.btn(client.sessionsLeft>0?"success":"ghost"),flex:1}} onClick={()=>client.sessionsLeft>0&&markSession(client.id)} disabled={client.sessionsLeft<=0}>✅ Ședință</button>
+                <button style={{...S.btn("success"),flex:1}} onClick={()=>openMarkSession(client.id)}>✅ Ședință</button>
               </div>
 
-              {/* ── PER-CLIENT CALENDAR ── */}
               <div style={S.sTitle}>📅 Calendar prezență</div>
-              <div style={{marginBottom:14}}>
-                <MiniCalendar sessionDates={sessionDates} paymentDates={paymentDates} />
-              </div>
+              <div style={{marginBottom:14}}><MiniCalendar sessionDates={sessionDates} paymentDates={paymentDates}/></div>
 
               <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                 <div style={{fontSize:13,color:MUTED,fontWeight:600}}>Total câștigat de la {client.name}</div>
@@ -451,19 +494,10 @@ export default function App() {
               <div style={S.sTitle}>Istoric activitate</div>
               {(client.history||[]).length===0&&<div style={{color:MUTED,fontSize:14,padding:"10px 0"}}>Nicio activitate încă</div>}
               {[...(client.history||[])].reverse().map(h=>(
-                <div key={h.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}>
-                  <div style={S.sb}>
-                    <div style={S.row}>
-                      <span style={{fontSize:17}}>{h.type==="payment"?"💳":"🏋️"}</span>
-                      <div><div style={{fontSize:13,fontWeight:600}}>{h.note}</div><div style={{fontSize:11,color:MUTED}}>{formatDate(h.date)}</div></div>
-                    </div>
-                    {h.type==="payment"&&<span style={S.badge(ACCENT,`${ACCENT}20`)}>+{h.amount} RON</span>}
-                    {h.type==="session"&&h.sessionPrice>0&&<span style={S.badge("#A29BFE","#A29BFE20")}>{h.sessionPrice} RON</span>}
-                  </div>
-                </div>
+                <HistoryEntry key={h.id} h={h} clientId={client.id}/>
               ))}
-              <div style={S.divider} />
-              <button style={{...S.btn("danger"),width:"100%"}} onClick={()=>deleteClient(client.id)}>🗑 Șterge client</button>
+              <div style={S.divider}/>
+              <button style={{...S.btn("danger"),width:"100%"}} onClick={()=>setDeleteClientConfirm(client.id)}>🗑 Șterge client</button>
             </>
           );
         })()}
@@ -472,9 +506,7 @@ export default function App() {
         {tab==="calendar"&&(
           <>
             <div style={S.sTitle}>📅 Calendar general — toți clienții</div>
-            {clients.length===0
-              ? <div style={{textAlign:"center",padding:"48px 20px",color:MUTED}}><div style={{fontSize:42,marginBottom:10}}>📅</div><div style={{fontSize:14}}>Adaugă clienți pentru a vedea calendarul</div></div>
-              : <GlobalCalendar clients={clients} />}
+            {clients.length===0?<div style={{textAlign:"center",padding:"48px 20px",color:MUTED}}><div style={{fontSize:42,marginBottom:10}}>📅</div><div style={{fontSize:14}}>Adaugă clienți pentru a vedea calendarul</div></div>:<GlobalCalendar clients={clients}/>}
           </>
         )}
 
@@ -494,19 +526,24 @@ export default function App() {
             </div>
             <div style={S.sTitle}>Ședințe ({todaySessions.length})</div>
             {todaySessions.length===0?<div style={{color:MUTED,fontSize:14,marginBottom:12}}>Nicio ședință azi</div>:todaySessions.map(s=>(
-              <div key={s.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}><div style={S.sb}><div style={S.row}><span>🏋️</span><span style={{fontWeight:600}}>{s.clientName}</span></div><span style={S.badge(ACCENT,`${ACCENT}20`)}>{s.sessionPrice} RON</span></div></div>
+              <div key={s.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}>
+                <div style={S.sb}>
+                  <div style={S.row}><span>🏋️</span><div><div style={{fontWeight:600}}>{s.clientName}</div>{s.time&&<div style={{fontSize:11,color:MUTED}}>{s.time}</div>}</div></div>
+                  <span style={S.badge(ACCENT,`${ACCENT}20`)}>{s.sessionPrice} RON</span>
+                </div>
+              </div>
             ))}
             <div style={S.sTitle}>Plăți ({todayPayments.length})</div>
             {todayPayments.length===0?<div style={{color:MUTED,fontSize:14,marginBottom:12}}>Nicio plată azi</div>:todayPayments.map(p=>(
               <div key={p.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}><div style={S.sb}><div style={S.row}><span>💳</span><span style={{fontWeight:600}}>{p.clientName}</span></div><span style={S.badge("#A29BFE","#A29BFE20")}>{p.amount} RON</span></div></div>
             ))}
-            <div style={S.divider} />
+            <div style={S.divider}/>
             <div style={S.sTitle}>Marchează rapid</div>
             {clients.filter(c=>c.sessionsLeft>0).map(c=>(
               <div key={c.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}>
                 <div style={S.sb}>
                   <div style={S.row}><div style={{...S.avatar(c.gender),width:32,height:32,fontSize:15}}>{genderEmoji(c.gender)}</div><div><div style={{fontWeight:600}}>{c.name}</div><div style={{fontSize:12,color:MUTED}}>{c.sessionsLeft} rămase</div></div></div>
-                  <button style={S.btn("success")} onClick={()=>markSession(c.id)}>✅ Done</button>
+                  <button style={S.btn("success")} onClick={()=>openMarkSession(c.id)}>✅ Done</button>
                 </div>
               </div>
             ))}
@@ -551,7 +588,7 @@ export default function App() {
         )}
       </div>
 
-      {/* MODALS */}
+      {/* ══ MODALS ══ */}
 
       {/* Add/Edit Client */}
       {modal?.type&&(modal.type==="addClient"||modal.type==="editClient")&&editForm&&(
@@ -559,18 +596,18 @@ export default function App() {
           <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
             <div style={{fontSize:18,fontWeight:800,marginBottom:18}}>{modal.type==="addClient"?"➕ Client nou":"✏️ Editează client"}</div>
             <label style={S.label}>Nume complet *</label>
-            <input style={{...S.input,marginBottom:12}} placeholder="ex. Ion Popescu" value={editForm.name} onChange={e=>setEditForm(p=>({...p,name:e.target.value}))} />
+            <input style={{...S.input,marginBottom:12}} placeholder="ex. Ion Popescu" value={editForm.name} onChange={e=>setEditForm(p=>({...p,name:e.target.value}))}/>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-              <div><label style={S.label}>Vârstă</label><input style={S.input} placeholder="ex. 28" type="number" value={editForm.age} onChange={e=>setEditForm(p=>({...p,age:e.target.value}))} /></div>
+              <div><label style={S.label}>Vârstă</label><input style={S.input} placeholder="ex. 28" type="number" value={editForm.age} onChange={e=>setEditForm(p=>({...p,age:e.target.value}))}/></div>
               <div><label style={S.label}>Gen</label><select style={{...S.input,appearance:"none"}} value={editForm.gender} onChange={e=>setEditForm(p=>({...p,gender:e.target.value}))}>{GENDERS.map(g=><option key={g}>{g}</option>)}</select></div>
             </div>
-            <div style={S.divider} />
+            <div style={S.divider}/>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-              <div><label style={S.label}>Abonament (RON)</label><input style={S.input} placeholder="ex. 400" type="number" value={editForm.fee} onChange={e=>setEditForm(p=>({...p,fee:e.target.value}))} /></div>
-              <div><label style={S.label}>Preț/ședință (RON)</label><input style={S.input} placeholder="ex. 100" type="number" value={editForm.sessionPrice} onChange={e=>setEditForm(p=>({...p,sessionPrice:e.target.value}))} /></div>
+              <div><label style={S.label}>Abonament (RON)</label><input style={S.input} placeholder="ex. 400" type="number" value={editForm.fee} onChange={e=>setEditForm(p=>({...p,fee:e.target.value}))}/></div>
+              <div><label style={S.label}>Preț/ședință (RON)</label><input style={S.input} placeholder="ex. 100" type="number" value={editForm.sessionPrice} onChange={e=>setEditForm(p=>({...p,sessionPrice:e.target.value}))}/></div>
             </div>
             <label style={S.label}>Ciclu plată (zile)</label>
-            <input style={{...S.input,marginBottom:18}} placeholder="ex. 30" type="number" value={editForm.dueDays} onChange={e=>setEditForm(p=>({...p,dueDays:Number(e.target.value)}))} />
+            <input style={{...S.input,marginBottom:18}} placeholder="ex. 30" type="number" value={editForm.dueDays} onChange={e=>setEditForm(p=>({...p,dueDays:Number(e.target.value)}))}/>
             <div style={{display:"flex",gap:8}}>
               <button style={{...S.btn(),flex:1}} onClick={()=>setModal(null)}>Anulează</button>
               <button style={{...S.btn("primary"),flex:2}} onClick={saveClient}>{modal.type==="addClient"?"Adaugă client":"Salvează"}</button>
@@ -579,31 +616,167 @@ export default function App() {
         </div>
       )}
 
-      {/* Mark Paid */}
-      {modal?.type==="markPaid"&&(()=>{
+      {/* ── MARK SESSION MODAL ── */}
+      {modal?.type==="markSession"&&(()=>{
         const c=clients.find(x=>x.id===modal.clientId);
         return (
           <div style={S.modal} onClick={()=>setModal(null)}>
             <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
-              <div style={{fontSize:18,fontWeight:800,marginBottom:18}}>💳 Plată — {c?.name}</div>
-              <label style={S.label}>Sumă plătită (RON)</label>
-              <input style={{...S.input,marginBottom:12}} type="number" placeholder="ex. 400" value={payAmount} onChange={e=>setPayAmount(e.target.value)} />
-              <label style={S.label}>Ședințe cumpărate</label>
-              <input style={{...S.input,marginBottom:12}} type="number" placeholder="ex. 8" value={paySessions} onChange={e=>setPaySessions(e.target.value)} />
-              <label style={S.label}>Scadență (zile de azi)</label>
-              <input style={{...S.input,marginBottom:10}} type="number" placeholder="ex. 30" value={payDueDays} onChange={e=>setPayDueDays(Number(e.target.value))} />
-              <div style={{background:CARD2,borderRadius:10,padding:"10px 14px",fontSize:13,color:MUTED,marginBottom:18}}>
-                Scadență: <strong style={{color:TEXT}}>{formatDate(addDays(today(),payDueDays))}</strong>
+              {/* Header */}
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+                <div style={{width:38,height:38,borderRadius:10,background:`${ACCENT}20`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🏋️</div>
+                <div>
+                  <div style={{fontSize:18,fontWeight:800}}>Înregistrează ședință</div>
+                  <div style={{fontSize:13,color:MUTED}}>{c?.name} · {c?.sessionsLeft} rămase</div>
+                </div>
               </div>
+              <div style={S.divider}/>
+
+              {/* Date */}
+              <label style={S.label}>📅 Data ședinței</label>
+              <input
+                type="date"
+                style={{...S.input,marginBottom:14,colorScheme:"dark"}}
+                value={sessDate}
+                onChange={e=>setSessDate(e.target.value)}
+              />
+
+              {/* Time */}
+              <label style={S.label}>🕐 Ora ședinței</label>
+              <input
+                type="time"
+                style={{...S.input,marginBottom:18,colorScheme:"dark"}}
+                value={sessTime}
+                onChange={e=>setSessTime(e.target.value)}
+              />
+
+              {/* Preview */}
+              <div style={{background:CARD2,borderRadius:10,padding:"12px 14px",marginBottom:18,border:`1px solid ${BORDER}`}}>
+                <div style={{fontSize:12,color:MUTED,marginBottom:4,fontWeight:600}}>REZUMAT</div>
+                <div style={{fontSize:14,fontWeight:700}}>{c?.name}</div>
+                <div style={{fontSize:13,color:MUTED,marginTop:2}}>
+                  {sessDate ? formatDate(sessDate) : "—"}{sessTime ? ` la ${sessTime}` : ""}
+                </div>
+                {c?.sessionPrice>0&&<div style={{fontSize:13,color:ACCENT,marginTop:4,fontWeight:700}}>Valoare: {c.sessionPrice} RON</div>}
+              </div>
+
               <div style={{display:"flex",gap:8}}>
                 <button style={{...S.btn(),flex:1}} onClick={()=>setModal(null)}>Anulează</button>
-                <button style={{...S.btn("primary"),flex:2}} onClick={markPaid}>✅ Confirmă plata</button>
+                <button style={{...S.btn("primary"),flex:2}} onClick={confirmSession} disabled={!sessDate}>✅ Confirmă ședința</button>
               </div>
             </div>
           </div>
         );
       })()}
+
+      {/* ── MARK PAID MODAL ── */}
+      {modal?.type==="markPaid"&&(()=>{
+        const c=clients.find(x=>x.id===modal.clientId);
+        const nextDuePreview = payDate && payDueDays ? addDays(payDate, payDueDays) : null;
+        return (
+          <div style={S.modal} onClick={()=>setModal(null)}>
+            <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+                <div style={{width:38,height:38,borderRadius:10,background:"#A29BFE20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>💳</div>
+                <div>
+                  <div style={{fontSize:18,fontWeight:800}}>Înregistrează plată</div>
+                  <div style={{fontSize:13,color:MUTED}}>{c?.name}</div>
+                </div>
+              </div>
+              <div style={S.divider}/>
+
+              {/* Payment date */}
+              <label style={S.label}>📅 Data plății</label>
+              <input
+                type="date"
+                style={{...S.input,marginBottom:14,colorScheme:"dark"}}
+                value={payDate}
+                onChange={e=>setPayDate(e.target.value)}
+              />
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+                <div>
+                  <label style={S.label}>Sumă (RON)</label>
+                  <input style={S.input} type="number" placeholder="ex. 400" value={payAmount} onChange={e=>setPayAmount(e.target.value)}/>
+                </div>
+                <div>
+                  <label style={S.label}>Ședințe cumpărate</label>
+                  <input style={S.input} type="number" placeholder="ex. 8" value={paySessions} onChange={e=>setPaySessions(e.target.value)}/>
+                </div>
+              </div>
+
+              <label style={S.label}>⏳ Scadență următoare (zile)</label>
+              <input style={{...S.input,marginBottom:12}} type="number" placeholder="ex. 30" value={payDueDays} onChange={e=>setPayDueDays(Number(e.target.value))}/>
+
+              {/* Preview */}
+              {nextDuePreview&&(
+                <div style={{background:CARD2,borderRadius:10,padding:"12px 14px",marginBottom:18,border:`1px solid ${BORDER}`}}>
+                  <div style={{fontSize:12,color:MUTED,marginBottom:4,fontWeight:600}}>REZUMAT</div>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <div>
+                      <div style={{fontSize:13,color:MUTED}}>Data plății</div>
+                      <div style={{fontSize:14,fontWeight:700}}>{formatDate(payDate)}</div>
+                    </div>
+                    <div style={{textAlign:"right"}}>
+                      <div style={{fontSize:13,color:MUTED}}>Următoarea scadență</div>
+                      <div style={{fontSize:14,fontWeight:700,color:ACCENT}}>{formatDate(nextDuePreview)}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div style={{display:"flex",gap:8}}>
+                <button style={{...S.btn(),flex:1}} onClick={()=>setModal(null)}>Anulează</button>
+                <button style={{...S.btn("primary"),flex:2}} onClick={confirmPayment}>✅ Confirmă plata</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── DELETE CLIENT CONFIRM ── */}
+      {deleteClientConfirm&&(()=>{
+        const c = clients.find(x=>x.id===deleteClientConfirm);
+        return (
+          <div style={S.modal} onClick={()=>setDeleteClientConfirm(null)}>
+            <div style={{...S.modalBox,padding:"28px 20px 36px"}} onClick={e=>e.stopPropagation()}>
+              <div style={{textAlign:"center",marginBottom:20}}>
+                <div style={{fontSize:42,marginBottom:12}}>⚠️</div>
+                <div style={{fontSize:18,fontWeight:800,marginBottom:8}}>Ștergi clientul?</div>
+                <div style={{fontSize:14,color:MUTED,lineHeight:1.5}}>
+                  Ești sigur că vrei să ștergi<br/>
+                  <strong style={{color:TEXT}}>{c?.name}</strong>?<br/>
+                  Toate datele și istoricul vor fi pierdute definitiv.
+                </div>
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button style={{...S.btn(),flex:1}} onClick={()=>setDeleteClientConfirm(null)}>Anulează</button>
+                <button
+                  style={{...S.btn("danger"),flex:1,justifyContent:"center",background:ACCENT2,color:"#fff"}}
+                  onClick={()=>{ deleteClient(deleteClientConfirm); setDeleteClientConfirm(null); }}
+                >🗑 Da, șterge</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── DELETE ENTRY CONFIRM ── */}
+      {deleteConfirm&&(
+        <div style={S.modal} onClick={()=>setDeleteConfirm(null)}>
+          <div style={{...S.modalBox,padding:"24px 20px 32px"}} onClick={e=>e.stopPropagation()}>
+            <div style={{textAlign:"center",marginBottom:16}}>
+              <div style={{fontSize:36,marginBottom:10}}>🗑️</div>
+              <div style={{fontSize:17,fontWeight:800,marginBottom:6}}>Ștergi această înregistrare?</div>
+              <div style={{fontSize:13,color:MUTED}}>Dacă este o ședință, ședința va fi restituită clientului.</div>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <button style={{...S.btn(),flex:1}} onClick={()=>setDeleteConfirm(null)}>Anulează</button>
+              <button style={{...S.btn("danger"),flex:1,justifyContent:"center"}} onClick={()=>deleteEntry(deleteConfirm.clientId,deleteConfirm.entryId)}>✕ Șterge</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
