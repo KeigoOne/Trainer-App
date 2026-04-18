@@ -1,4 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  "YOUR_SUPABASE_URL",
+  "YOUR_SUPABASE_ANON_KEY"
+);
 
 const STORAGE_KEY = "pt_tracker_clients_v3";
 
@@ -212,7 +218,7 @@ function GlobalCalendar({ clients }) {
 }
 
 // ══════════════════════════════ MAIN APP ══════════════════════════════
-export default function App() {
+function App() {
   const [clients, setClients] = useStorage();
   const [tab, setTab] = useState("clients");
   const [modal, setModal] = useState(null);
@@ -779,4 +785,135 @@ export default function App() {
       )}
     </div>
   );
+}
+
+// ══════════════════════════════ AUTH SCREEN ══════════════════════════════
+function AuthScreen({ onAuth }) {
+  const [mode, setMode] = useState("login"); // "login" | "register"
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const ACCENT = "#00E5A0";
+  const BG = "#0D0F14";
+  const CARD = "#161A23";
+  const CARD2 = "#1E2330";
+  const BORDER = "#2A3040";
+  const TEXT = "#E8ECF4";
+  const MUTED = "#6B7590";
+  const ACCENT2 = "#FF6B6B";
+
+  async function handleSubmit() {
+    setError(""); setSuccess(""); setLoading(true);
+    try {
+      if (mode === "register") {
+        const { error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        setSuccess("Cont creat! Verifică emailul pentru confirmare.");
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        onAuth();
+      }
+    } catch (e) {
+      setError(e.message || "A apărut o eroare.");
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div style={{ minHeight:"100vh", background:BG, display:"flex", alignItems:"center", justifyContent:"center", padding:20, fontFamily:"'DM Sans',sans-serif" }}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
+      <div style={{ width:"100%", maxWidth:400 }}>
+
+        {/* Logo */}
+        <div style={{ textAlign:"center", marginBottom:36 }}>
+          <div style={{ width:60, height:60, borderRadius:16, background:`linear-gradient(135deg,${ACCENT},#00B87A)`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:30, margin:"0 auto 14px" }}>💪</div>
+          <div style={{ fontSize:26, fontWeight:900, color:TEXT, letterSpacing:"-0.5px" }}>PT Tracker</div>
+          <div style={{ fontSize:13, color:MUTED, marginTop:4, textTransform:"uppercase", letterSpacing:"0.8px" }}>Personal Trainer Pro</div>
+        </div>
+
+        {/* Card */}
+        <div style={{ background:CARD, borderRadius:20, padding:"28px 24px", border:`1px solid ${BORDER}` }}>
+
+          {/* Mode toggle */}
+          <div style={{ display:"flex", background:CARD2, borderRadius:10, padding:3, marginBottom:24 }}>
+            {[["login","Autentificare"],["register","Înregistrare"]].map(([m,label])=>(
+              <button key={m} onClick={()=>{ setMode(m); setError(""); setSuccess(""); }} style={{ flex:1, padding:"8px 0", borderRadius:8, border:"none", cursor:"pointer", fontSize:13, fontWeight:700, transition:"all 0.2s", background:mode===m?ACCENT:"transparent", color:mode===m?"#000":MUTED }}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Email */}
+          <label style={{ fontSize:12, fontWeight:700, color:MUTED, display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:"0.5px" }}>Email</label>
+          <input
+            type="email"
+            placeholder="exemplu@email.com"
+            value={email}
+            onChange={e=>setEmail(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
+            style={{ width:"100%", background:CARD2, border:`1px solid ${BORDER}`, borderRadius:10, padding:"12px 14px", color:TEXT, fontSize:14, outline:"none", boxSizing:"border-box", marginBottom:14 }}
+          />
+
+          {/* Password */}
+          <label style={{ fontSize:12, fontWeight:700, color:MUTED, display:"block", marginBottom:6, textTransform:"uppercase", letterSpacing:"0.5px" }}>Parolă</label>
+          <input
+            type="password"
+            placeholder="Minim 6 caractere"
+            value={password}
+            onChange={e=>setPassword(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&handleSubmit()}
+            style={{ width:"100%", background:CARD2, border:`1px solid ${BORDER}`, borderRadius:10, padding:"12px 14px", color:TEXT, fontSize:14, outline:"none", boxSizing:"border-box", marginBottom:20 }}
+          />
+
+          {/* Error / Success */}
+          {error && <div style={{ background:`${ACCENT2}15`, border:`1px solid ${ACCENT2}40`, borderRadius:10, padding:"10px 14px", fontSize:13, color:ACCENT2, marginBottom:16 }}>⚠ {error}</div>}
+          {success && <div style={{ background:`${ACCENT}15`, border:`1px solid ${ACCENT}40`, borderRadius:10, padding:"10px 14px", fontSize:13, color:ACCENT, marginBottom:16 }}>✓ {success}</div>}
+
+          {/* Submit */}
+          <button
+            onClick={handleSubmit}
+            disabled={loading || !email || !password}
+            style={{ width:"100%", background:ACCENT, color:"#000", border:"none", borderRadius:12, padding:"14px", fontSize:15, fontWeight:800, cursor:loading?"not-allowed":"pointer", opacity:loading||!email||!password?0.6:1, transition:"opacity 0.2s" }}
+          >
+            {loading ? "Se procesează..." : mode==="login" ? "Intră în cont" : "Creează cont"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════ ROOT WRAPPER ══════════════════════════════
+export default function Root() {
+  const [user, setUser] = useState(undefined); // undefined = loading, null = logged out
+
+  useEffect(() => {
+    // Check current session on load
+    supabase.auth.getUser().then(({ data: { user } }) => setUser(user ?? null));
+
+    // Listen for login/logout changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Loading state
+  if (user === undefined) {
+    return (
+      <div style={{ minHeight:"100vh", background:"#0D0F14", display:"flex", alignItems:"center", justifyContent:"center" }}>
+        <div style={{ color:"#6B7590", fontSize:14, fontFamily:"sans-serif" }}>Se încarcă...</div>
+      </div>
+    );
+  }
+
+  // Not logged in → show auth screen
+  if (!user) return <AuthScreen onAuth={() => supabase.auth.getUser().then(({ data: { user } }) => setUser(user))} />;
+
+  // Logged in → show the app
+  return <App />;
 }
