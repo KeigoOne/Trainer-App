@@ -2,24 +2,59 @@ import { useState, useCallback, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
-  "YOUR_SUPABASE_URL",
-  "YOUR_SUPABASE_ANON_KEY"
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
 );
 
-const STORAGE_KEY = "pt_tracker_clients_v3";
 
-function useStorage() {
-  const [clients, setClientsState] = useState(() => {
-    try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : []; } catch { return []; }
-  });
+
+// ── Sync diff to Supabase: upsert changed/added, delete removed ──
+async function syncToSupabase(prev, next, userId) {
+  const prevMap = Object.fromEntries(prev.map(c => [c.id, c]));
+  const nextMap = Object.fromEntries(next.map(c => [c.id, c]));
+
+  // Delete removed clients
+  for (const id of Object.keys(prevMap)) {
+    if (!nextMap[id]) {
+      await supabase.from("clients").delete().eq("id", id).eq("user_id", userId);
+    }
+  }
+
+  // Upsert added or changed clients
+  for (const client of next) {
+    const prev = prevMap[client.id];
+    if (!prev || JSON.stringify(prev) !== JSON.stringify(client)) {
+      await supabase.from("clients").upsert({ id: client.id, user_id: userId, data: client });
+    }
+  }
+}
+
+function useStorage(user) {
+  const [clients, setClientsState] = useState([]);
+  const [dbLoading, setDbLoading] = useState(true);
+
+  // Load from Supabase on mount
+  useEffect(() => {
+    if (!user) return;
+    supabase
+      .from("clients")
+      .select("data")
+      .eq("user_id", user.id)
+      .then(({ data, error }) => {
+        if (data) setClientsState(data.map(r => r.data));
+        setDbLoading(false);
+      });
+  }, [user]);
+
   const setClients = useCallback((updater) => {
     setClientsState((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch {}
+      if (user) syncToSupabase(prev, next, user.id);
       return next;
     });
-  }, []);
-  return [clients, setClients];
+  }, [user]);
+
+  return [clients, setClients, dbLoading];
 }
 
 function daysUntil(dateStr) {
@@ -218,8 +253,8 @@ function GlobalCalendar({ clients }) {
 }
 
 // ══════════════════════════════ MAIN APP ══════════════════════════════
-function App() {
-  const [clients, setClients] = useStorage();
+function App({ user }) {
+  const [clients, setClients, dbLoading] = useStorage(user);
   const [tab, setTab] = useState("clients");
   const [modal, setModal] = useState(null);
   const [editForm, setEditForm] = useState(null);
@@ -386,6 +421,14 @@ function App() {
     <div style={S.app}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
 
+      {/* DB LOADING */}
+      {dbLoading && (
+        <div style={{position:"fixed",inset:0,background:"#0D0F14",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:9999}}>
+          <div style={{fontSize:40,marginBottom:16}}>💪</div>
+          <div style={{color:"#00E5A0",fontSize:14,fontWeight:700}}>Se încarcă datele...</div>
+        </div>
+      )}
+
       {/* HEADER */}
       <div style={S.header}>
         <div style={S.sb}>
@@ -396,7 +439,10 @@ function App() {
               <div style={{fontSize:10,color:MUTED,letterSpacing:"0.5px",textTransform:"uppercase"}}>Personal Trainer Pro</div>
             </div>
           </div>
-          {tab==="clients"&&!selectedClient&&<button style={S.btn("primary")} onClick={openAddClient}>+ Client</button>}
+          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+            {tab==="clients"&&!selectedClient&&<button style={S.btn("primary")} onClick={openAddClient}>+ Client</button>}
+            <button onClick={()=>supabase.auth.signOut()} title="Deconectare" style={{background:"transparent",border:`1px solid ${BORDER}`,borderRadius:9,padding:"6px 10px",color:MUTED,cursor:"pointer",fontSize:13,fontWeight:700}}>⏻</button>
+          </div>
         </div>
         <div style={S.navTabs}>
           {[["clients","👥","Clienți"],["calendar","📅","Calendar"],["today","⚡","Azi"],["summary","📊","Sumar"]].map(([t,icon,label])=>(
@@ -915,5 +961,5 @@ export default function Root() {
   if (!user) return <AuthScreen onAuth={() => supabase.auth.getUser().then(({ data: { user } }) => setUser(user))} />;
 
   // Logged in → show the app
-  return <App />;
+  return <App user={user} />;
 }
