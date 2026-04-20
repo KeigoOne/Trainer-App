@@ -458,6 +458,34 @@ function ProfileView({user,profile,setProfile}){
   );
 }
 
+
+// ─── QUICK SESSION MODAL ──────────────────────────────────────────────────────
+function QuickSessionModal({clients,initialDate,onClose,onConfirm}){
+  const[qClient,setQClient]=useState("");
+  const[qDate,setQDate]=useState(initialDate||today());
+  const[qTime,setQTime]=useState(nowTime());
+  return(
+    <div style={S.modal} onClick={onClose}>
+      <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:18,fontWeight:800,marginBottom:16}}>⚡ Adaugă ședință rapidă</div>
+        <label style={S.label}>Client</label>
+        <select style={{...S.input,marginBottom:12,appearance:"none"}} value={qClient} onChange={e=>setQClient(e.target.value)}>
+          <option value="">Alege client...</option>
+          {clients.map(c=><option key={c.id} value={c.id}>{c.name} ({c.sessionsLeft??0} rămase)</option>)}
+        </select>
+        <label style={S.label}>📅 Data</label>
+        <input type="date" style={{...S.input,marginBottom:12,colorScheme:"dark"}} value={qDate} onChange={e=>setQDate(e.target.value)}/>
+        <label style={S.label}>🕐 Ora</label>
+        <input type="time" style={{...S.input,marginBottom:18,colorScheme:"dark"}} value={qTime} onChange={e=>setQTime(e.target.value)}/>
+        <div style={{display:"flex",gap:8}}>
+          <button style={{...S.btn(),flex:1}} onClick={onClose}>Anulează</button>
+          <button style={{...S.btn("primary"),flex:2}} disabled={!qClient||!qDate} onClick={()=>onConfirm(qClient,qDate,qTime)}>✅ Confirmă</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── TRAINER APP ──────────────────────────────────────────────────────────────
 function TrainerApp({user,profile,setProfile}){
   const[clients,setClients,dbLoading]=useStorage(user);
@@ -822,37 +850,20 @@ function TrainerApp({user,profile,setProfile}){
       )}
 
       {/* QUICK SESSION FROM CALENDAR */}
-      {modal?.type==="quickSession"&&(()=>{
-        const[qClient,setQClient]=useState("");
-        const[qDate,setQDate]=useState(modal.date||today());
-        const[qTime,setQTime]=useState(nowTime());
-        return(
-          <div style={S.modal} onClick={()=>setModal(null)}>
-            <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
-              <div style={{fontSize:18,fontWeight:800,marginBottom:16}}>⚡ Adaugă ședință rapidă</div>
-              <label style={S.label}>Client</label>
-              <select style={{...S.input,marginBottom:12,appearance:"none"}} value={qClient} onChange={e=>setQClient(e.target.value)}>
-                <option value="">Alege client...</option>
-                {clients.map(c=><option key={c.id} value={c.id}>{c.name} ({c.sessionsLeft??0} rămase)</option>)}
-              </select>
-              <label style={S.label}>📅 Data</label>
-              <input type="date" style={{...S.input,marginBottom:12,colorScheme:"dark"}} value={qDate} onChange={e=>setQDate(e.target.value)}/>
-              <label style={S.label}>🕐 Ora</label>
-              <input type="time" style={{...S.input,marginBottom:18,colorScheme:"dark"}} value={qTime} onChange={e=>setQTime(e.target.value)}/>
-              <div style={{display:"flex",gap:8}}>
-                <button style={{...S.btn(),flex:1}} onClick={()=>setModal(null)}>Anulează</button>
-                <button style={{...S.btn("primary"),flex:2}} disabled={!qClient||!qDate} onClick={()=>{
-                  setClients(prev=>prev.map(c=>{
-                    if(c.id!==qClient)return c;
-                    return{...c,sessionsLeft:Math.max(0,(c.sessionsLeft||0)-1),history:[...(c.history||[]),{id:crypto.randomUUID(),type:"session",date:qDate,time:qTime,sessionPrice:c.sessionPrice||0,note:"Ședință completată"}]};
-                  }));
-                  setModal(null);
-                }}>✅ Confirmă</button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {modal?.type==="quickSession"&&(
+        <QuickSessionModal
+          clients={clients}
+          initialDate={modal.date||today()}
+          onClose={()=>setModal(null)}
+          onConfirm={(qClient,qDate,qTime)=>{
+            setClients(prev=>prev.map(c=>{
+              if(c.id!==qClient)return c;
+              return{...c,sessionsLeft:Math.max(0,(c.sessionsLeft||0)-1),history:[...(c.history||[]),{id:crypto.randomUUID(),type:"session",date:qDate,time:qTime,sessionPrice:c.sessionPrice||0,note:"Ședință completată"}]};
+            }));
+            setModal(null);
+          }}
+        />
+      )}
     </div>
   );
 }
