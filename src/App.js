@@ -1202,19 +1202,20 @@ function ClientApp({user,profile,setProfile,clientCard,refreshClientCard}){
   const navItems=[["welcome","🏠","Acasă"],["calendar","📅","Calendar"],["booking","🗓","Rezervări"],["measures","📏","Măsurători"],["photos","📸","Poze"],["profile","👤","Profil"]];
 
   // Refresh client card on mount to always show latest data
+  const[trainerName,setTrainerName]=useState("");
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(()=>{ if(refreshClientCard) refreshClientCard(); },[]);
 
-  if(!clientCard&&profile?.role==="client"){
-    return <UnlinkedScreen user={user} profile={profile}/>;
-  }
-
-  const[trainerName,setTrainerName]=useState("");
   useEffect(()=>{
     if(!profile?.trainer_id)return;
     supabase.from("profiles").select("name").eq("id",profile.trainer_id).single()
       .then(({data})=>{ if(data?.name) setTrainerName(data.name); });
   },[profile?.trainer_id]);
+
+  if(!clientCard&&profile?.role==="client"){
+    return <UnlinkedScreen user={user} profile={profile}/>;
+  }
 
   const sessionDates=(clientCard?.history||[]).filter(h=>h.type==="session").map(h=>h.date);
   const paymentDates=(clientCard?.history||[]).filter(h=>h.type==="payment").map(h=>h.date);
