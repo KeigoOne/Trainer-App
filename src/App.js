@@ -14,124 +14,142 @@ const MONTH_NAMES = ["Ianuarie","Februarie","Martie","Aprilie","Mai","Iunie","Iu
 const DAY_NAMES = ["Lu","Ma","Mi","Jo","Vi","Sâ","Du"];
 const CLIENT_COLORS = ["#00E5A0","#FF6B6B","#A29BFE","#FFB74D","#4ECDC4","#FF8CC8","#74B9FF","#FDCB6E","#E17055","#55EFC4"];
 const GENDERS = ["Male","Female","Other"];
-const TRAINER_SECRET = import.meta.env.VITE_TRAINER_CODE || "TRAINER2024";
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
-function daysUntil(d) {
-  if (!d) return null;
-  const n=new Date(); n.setHours(0,0,0,0);
-  const t=new Date(d); t.setHours(0,0,0,0);
-  return Math.ceil((t-n)/86400000);
-}
-function formatDate(d) {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("ro-RO",{day:"2-digit",month:"short",year:"numeric"});
-}
-function formatDateTime(d,t) { return d ? (t?`${formatDate(d)}, ${t}`:formatDate(d)) : "—"; }
-function addDays(dateStr,days) { const d=new Date(dateStr); d.setDate(d.getDate()+days); return d.toISOString().split("T")[0]; }
-function today() { return new Date().toISOString().split("T")[0]; }
-function nowTime() { const d=new Date(); return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; }
-function getDaysInMonth(y,m) { return new Date(y,m+1,0).getDate(); }
-function getFirstDayOfMonth(y,m) { const d=new Date(y,m,1).getDay(); return d===0?6:d-1; }
-function genderEmoji(g) { return g==="Female"?"👩":g==="Male"?"👨":"🧑"; }
-function genCode() { return Math.random().toString(36).substring(2,8).toUpperCase(); }
+function daysUntil(d){if(!d)return null;const n=new Date();n.setHours(0,0,0,0);const t=new Date(d);t.setHours(0,0,0,0);return Math.ceil((t-n)/86400000);}
+function formatDate(d){if(!d)return"—";return new Date(d).toLocaleDateString("ro-RO",{day:"2-digit",month:"short",year:"numeric"});}
+function formatDateTime(d,t){return d?(t?`${formatDate(d)}, ${t}`:formatDate(d)):"—";}
+function addDays(s,n){const d=new Date(s);d.setDate(d.getDate()+n);return d.toISOString().split("T")[0];}
+function today(){return new Date().toISOString().split("T")[0];}
+function nowTime(){const d=new Date();return`${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;}
+function getDaysInMonth(y,m){return new Date(y,m+1,0).getDate();}
+function getFirstDayOfMonth(y,m){const d=new Date(y,m,1).getDay();return d===0?6:d-1;}
+function genderEmoji(g){return g==="Female"?"👩":g==="Male"?"👨":"🧑";}
+function genCode(){return crypto.randomUUID().replace(/-/g,"").substring(0,8).toUpperCase();}
 
-// ─── SUPABASE SYNC (Trainer clients) ─────────────────────────────────────────
-async function syncToSupabase(prev, next, userId) {
-  const prevMap = Object.fromEntries(prev.map(c=>[c.id,c]));
-  const nextMap = Object.fromEntries(next.map(c=>[c.id,c]));
-  for (const id of Object.keys(prevMap)) {
-    if (!nextMap[id]) await supabase.from("clients").delete().eq("id",id).eq("user_id",userId);
-  }
-  for (const client of next) {
-    const p = prevMap[client.id];
-    if (!p || JSON.stringify(p) !== JSON.stringify(client)) {
-      await supabase.from("clients").upsert({
-        id: client.id, user_id: userId,
-        client_email: client.email || null,
-        data: client
-      });
+// Generate a short-lived signed URL for a private photo path
+async function getSignedUrl(path) {
+  const { data, error } = await supabase.storage
+    .from("progress-photos")
+    .createSignedUrl(path, 60 * 30); // 30 minutes
+  return error ? null : data.signedUrl;
+}
+
+// ─── SUPABASE SYNC ────────────────────────────────────────────────────────────
+async function syncToSupabase(prev,next,userId){
+  const pm=Object.fromEntries(prev.map(c=>[c.id,c]));
+  const nm=Object.fromEntries(next.map(c=>[c.id,c]));
+  for(const id of Object.keys(pm)){if(!nm[id])await supabase.from("clients").delete().eq("id",id).eq("user_id",userId);}
+  for(const client of next){
+    const p=pm[client.id];
+    if(!p||JSON.stringify(p)!==JSON.stringify(client)){
+      await supabase.from("clients").upsert({id:client.id,user_id:userId,client_email:client.email||null,data:client});
     }
   }
 }
-
-function useStorage(user) {
-  const [clients, setClientsState] = useState([]);
-  const [dbLoading, setDbLoading] = useState(true);
-  useEffect(() => {
-    if (!user) return;
+function useStorage(user){
+  const [clients,setClientsState]=useState([]);
+  const [dbLoading,setDbLoading]=useState(true);
+  useEffect(()=>{
+    if(!user)return;
     supabase.from("clients").select("data").eq("user_id",user.id)
-      .then(({data}) => { if (data) setClientsState(data.map(r=>r.data)); setDbLoading(false); });
-  }, [user]);
-  const setClients = useCallback((updater) => {
-    setClientsState((prev) => {
-      const next = typeof updater==="function" ? updater(prev) : updater;
-      if (user) syncToSupabase(prev, next, user.id);
+      .then(({data})=>{if(data)setClientsState(data.map(r=>r.data));setDbLoading(false);});
+  },[user]);
+  const setClients=useCallback((updater)=>{
+    setClientsState((prev)=>{
+      const next=typeof updater==="function"?updater(prev):updater;
+      if(user)syncToSupabase(prev,next,user.id);
       return next;
     });
-  }, [user]);
-  return [clients, setClients, dbLoading];
+  },[user]);
+  return[clients,setClients,dbLoading];
 }
 
-// ─── SHARED STYLES ────────────────────────────────────────────────────────────
-function useS() {
-  return {
-    app:{minHeight:"100vh",background:BG,color:TEXT,fontFamily:"'DM Sans',sans-serif",paddingBottom:80},
-    header:{background:`linear-gradient(135deg,${CARD} 0%,#12161F 100%)`,borderBottom:`1px solid ${BORDER}`,padding:"18px 18px 12px",position:"sticky",top:0,zIndex:100},
-    navTabs:{display:"flex",gap:3,marginTop:12,background:`${CARD2}80`,borderRadius:10,padding:3},
-    tab:(a)=>({flex:1,padding:"7px 0",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,transition:"all 0.2s",background:a?ACCENT:"transparent",color:a?"#000":MUTED}),
-    main:{padding:"16px 14px",maxWidth:500,margin:"0 auto"},
-    sTitle:{fontSize:11,fontWeight:700,color:MUTED,letterSpacing:"1px",textTransform:"uppercase",marginBottom:10},
-    card:{background:CARD,borderRadius:16,padding:15,border:`1px solid ${BORDER}`,marginBottom:10},
-    row:{display:"flex",alignItems:"center",gap:8},
-    sb:{display:"flex",alignItems:"center",justifyContent:"space-between"},
-    avatar:(g)=>({width:42,height:42,borderRadius:11,background:g==="Female"?"linear-gradient(135deg,#FF6B9D,#C44569)":g==="Male"?"linear-gradient(135deg,#4ECDC4,#2980B9)":"linear-gradient(135deg,#A29BFE,#6C5CE7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:19,flexShrink:0}),
-    badge:(c,bg)=>({display:"inline-flex",alignItems:"center",gap:3,padding:"3px 8px",borderRadius:6,fontSize:11,fontWeight:700,color:c,background:bg}),
-    btn:(v)=>({border:"none",cursor:"pointer",borderRadius:10,fontWeight:700,fontSize:14,transition:"all 0.15s",display:"inline-flex",alignItems:"center",gap:6,fontFamily:"'DM Sans',sans-serif",...(v==="primary"?{background:ACCENT,color:"#000",padding:"11px 20px"}:v==="danger"?{background:`${ACCENT2}20`,color:ACCENT2,padding:"8px 14px",fontSize:13}:v==="ghost"?{background:CARD2,color:TEXT,padding:"8px 14px",fontSize:13,border:`1px solid ${BORDER}`}:v==="success"?{background:`${ACCENT}20`,color:ACCENT,padding:"8px 14px",fontSize:13}:v==="icon"?{background:"transparent",color:MUTED,padding:"4px 6px",fontSize:15,border:"none"}:{background:CARD2,color:TEXT,padding:"11px 20px",border:`1px solid ${BORDER}`})}),
-    input:{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"11px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",fontFamily:"'DM Sans',sans-serif"},
-    label:{fontSize:12,fontWeight:600,color:MUTED,marginBottom:5,display:"block"},
-    modal:{position:"fixed",inset:0,background:"#000000CC",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:999,backdropFilter:"blur(4px)"},
-    modalBox:{background:CARD,borderRadius:"20px 20px 0 0",padding:"24px 20px 36px",width:"100%",maxWidth:500,border:`1px solid ${BORDER}`,maxHeight:"90vh",overflowY:"auto"},
-    divider:{height:1,background:BORDER,margin:"12px 0"},
-    statBox:{background:CARD2,borderRadius:10,padding:"9px 6px",textAlign:"center",border:`1px solid ${BORDER}`},
-  };
+// ─── STYLES ───────────────────────────────────────────────────────────────────
+const S={
+  app:{minHeight:"100vh",background:BG,color:TEXT,fontFamily:"'DM Sans',sans-serif",paddingBottom:40},
+  header:{background:`linear-gradient(135deg,${CARD} 0%,#12161F 100%)`,borderBottom:`1px solid ${BORDER}`,padding:"16px 18px",position:"sticky",top:0,zIndex:200},
+  main:{padding:"16px 14px",maxWidth:500,margin:"0 auto"},
+  sTitle:{fontSize:11,fontWeight:700,color:MUTED,letterSpacing:"1px",textTransform:"uppercase",marginBottom:10},
+  card:{background:CARD,borderRadius:16,padding:15,border:`1px solid ${BORDER}`,marginBottom:10},
+  row:{display:"flex",alignItems:"center",gap:8},
+  sb:{display:"flex",alignItems:"center",justifyContent:"space-between"},
+  avatar:(g)=>({width:42,height:42,borderRadius:11,background:g==="Female"?"linear-gradient(135deg,#FF6B9D,#C44569)":g==="Male"?"linear-gradient(135deg,#4ECDC4,#2980B9)":"linear-gradient(135deg,#A29BFE,#6C5CE7)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:19,flexShrink:0}),
+  badge:(c,bg)=>({display:"inline-flex",alignItems:"center",gap:3,padding:"3px 8px",borderRadius:6,fontSize:11,fontWeight:700,color:c,background:bg}),
+  btn:(v)=>({border:"none",cursor:"pointer",borderRadius:10,fontWeight:700,fontSize:14,transition:"all 0.15s",display:"inline-flex",alignItems:"center",gap:6,fontFamily:"'DM Sans',sans-serif",...(v==="primary"?{background:ACCENT,color:"#000",padding:"11px 20px"}:v==="danger"?{background:`${ACCENT2}20`,color:ACCENT2,padding:"8px 14px",fontSize:13}:v==="ghost"?{background:CARD2,color:TEXT,padding:"8px 14px",fontSize:13,border:`1px solid ${BORDER}`}:v==="success"?{background:`${ACCENT}20`,color:ACCENT,padding:"8px 14px",fontSize:13}:v==="icon"?{background:"transparent",color:MUTED,padding:"4px 6px",fontSize:15,border:"none"}:{background:CARD2,color:TEXT,padding:"11px 20px",border:`1px solid ${BORDER}`})}),
+  input:{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"11px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",fontFamily:"'DM Sans',sans-serif"},
+  label:{fontSize:12,fontWeight:600,color:MUTED,marginBottom:5,display:"block"},
+  // CENTERED modal
+  modal:{position:"fixed",inset:0,background:"#000000CC",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999,backdropFilter:"blur(4px)",padding:16},
+  modalBox:{background:CARD,borderRadius:20,padding:"24px 20px 28px",width:"100%",maxWidth:460,border:`1px solid ${BORDER}`,maxHeight:"88vh",overflowY:"auto"},
+  divider:{height:1,background:BORDER,margin:"12px 0"},
+  statBox:{background:CARD2,borderRadius:10,padding:"9px 6px",textAlign:"center",border:`1px solid ${BORDER}`},
+};
+
+// ─── DRAWER ───────────────────────────────────────────────────────────────────
+function Drawer({open,onClose,items,onSelect,activeView,user,profile}){
+  return(
+    <>
+      {/* Overlay */}
+      {open&&<div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:300,backdropFilter:"blur(2px)"}}/>}
+      {/* Panel */}
+      <div style={{position:"fixed",top:0,left:0,height:"100%",width:280,background:CARD,borderRight:`1px solid ${BORDER}`,zIndex:301,transform:open?"translateX(0)":"translateX(-100%)",transition:"transform 0.25s cubic-bezier(0.4,0,0.2,1)",display:"flex",flexDirection:"column",fontFamily:"'DM Sans',sans-serif"}}>
+        {/* Header */}
+        <div style={{padding:"24px 20px 16px",borderBottom:`1px solid ${BORDER}`}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{width:36,height:36,borderRadius:10,background:`linear-gradient(135deg,${ACCENT},#00B87A)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>💪</div>
+            <div><div style={{fontSize:16,fontWeight:800,color:TEXT}}>PT Tracker</div><div style={{fontSize:10,color:MUTED,textTransform:"uppercase",letterSpacing:"0.5px"}}>{profile?.role==="trainer"?"Antrenor":"Client"}</div></div>
+          </div>
+          {user&&<div style={{fontSize:12,color:MUTED,marginTop:10,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.email}</div>}
+        </div>
+        {/* Nav items */}
+        <div style={{flex:1,padding:"12px 10px",overflowY:"auto"}}>
+          {items.map(([view,icon,label])=>(
+            <button key={view} onClick={()=>{onSelect(view);onClose();}} style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"12px 12px",borderRadius:12,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:activeView===view?700:500,background:activeView===view?`${ACCENT}18`:"transparent",color:activeView===view?ACCENT:TEXT,marginBottom:2,transition:"all 0.15s",textAlign:"left"}}>
+              <span style={{fontSize:18,width:24,textAlign:"center"}}>{icon}</span>{label}
+              {activeView===view&&<div style={{marginLeft:"auto",width:6,height:6,borderRadius:3,background:ACCENT}}/>}
+            </button>
+          ))}
+        </div>
+        {/* Logout */}
+        <div style={{padding:"12px 10px 32px",borderTop:`1px solid ${BORDER}`}}>
+          <button onClick={()=>supabase.auth.signOut()} style={{width:"100%",display:"flex",alignItems:"center",gap:12,padding:"12px 12px",borderRadius:12,border:"none",cursor:"pointer",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:500,background:"transparent",color:ACCENT2,textAlign:"left"}}>
+            <span style={{fontSize:18,width:24,textAlign:"center"}}>⏻</span>Deconectare
+          </button>
+        </div>
+      </div>
+    </>
+  );
 }
 
 // ─── MINI CALENDAR ────────────────────────────────────────────────────────────
-function MiniCalendar({ sessionDates=[], paymentDates=[] }) {
+function MiniCalendar({sessionDates=[],paymentDates=[]}){
   const now=new Date();
-  const [vy,setVy]=useState(now.getFullYear());
-  const [vm,setVm]=useState(now.getMonth());
-  const dim=getDaysInMonth(vy,vm), fd=getFirstDayOfMonth(vy,vm), ts=today();
+  const[vy,setVy]=useState(now.getFullYear());
+  const[vm,setVm]=useState(now.getMonth());
+  const dim=getDaysInMonth(vy,vm),fd=getFirstDayOfMonth(vy,vm),ts=today();
   const ss=new Set(sessionDates.filter(d=>{const[y,m]=d.split("-").map(Number);return y===vy&&m-1===vm;}).map(d=>parseInt(d.split("-")[2])));
   const ps=new Set(paymentDates.filter(d=>{const[y,m]=d.split("-").map(Number);return y===vy&&m-1===vm;}).map(d=>parseInt(d.split("-")[2])));
-  const [ty,tm,td]=ts.split("-").map(Number); const today_d=ty===vy&&tm-1===vm?td:null;
+  const[ty,tm,td]=ts.split("-").map(Number);const today_d=ty===vy&&tm-1===vm?td:null;
   function prev(){if(vm===0){setVy(y=>y-1);setVm(11);}else setVm(m=>m-1);}
   function next(){if(vm===11){setVy(y=>y+1);setVm(0);}else setVm(m=>m+1);}
-  const cells=[]; for(let i=0;i<fd;i++) cells.push(null); for(let d=1;d<=dim;d++) cells.push(d);
-  return (
+  const cells=[];for(let i=0;i<fd;i++)cells.push(null);for(let d=1;d<=dim;d++)cells.push(d);
+  return(
     <div style={{background:CARD2,borderRadius:14,padding:14,border:`1px solid ${BORDER}`}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
         <button onClick={prev} style={{background:"none",border:"none",color:MUTED,cursor:"pointer",fontSize:18,padding:"2px 8px"}}>‹</button>
-        <div>
-          <div style={{fontSize:14,fontWeight:700,color:TEXT,textAlign:"center"}}>{MONTH_NAMES[vm]} {vy}</div>
-          <div style={{fontSize:11,color:MUTED,textAlign:"center"}}>{ss.size} ședințe această lună · {sessionDates.length} total</div>
-        </div>
+        <div><div style={{fontSize:14,fontWeight:700,color:TEXT,textAlign:"center"}}>{MONTH_NAMES[vm]} {vy}</div><div style={{fontSize:11,color:MUTED,textAlign:"center"}}>{ss.size} ședințe luna · {sessionDates.length} total</div></div>
         <button onClick={next} style={{background:"none",border:"none",color:MUTED,cursor:"pointer",fontSize:18,padding:"2px 8px"}}>›</button>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
-        {DAY_NAMES.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:MUTED,padding:"2px 0"}}>{d}</div>)}
-      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>{DAY_NAMES.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:MUTED,padding:"2px 0"}}>{d}</div>)}</div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
         {cells.map((day,i)=>{
-          if(!day) return <div key={`e${i}`}/>;
+          if(!day)return<div key={`e${i}`}/>;
           const isSess=ss.has(day),isPay=ps.has(day),isToday=day===today_d;
-          return (
-            <div key={day} style={{textAlign:"center",borderRadius:7,padding:"5px 1px",background:isSess?`${ACCENT}22`:isPay?"#A29BFE22":"transparent",border:isToday?`1.5px solid ${ACCENT}`:isSess?`1px solid ${ACCENT}50`:isPay?"1px solid #A29BFE50":"1px solid transparent"}}>
-              <div style={{fontSize:12,fontWeight:isSess||isPay?700:400,color:isSess?ACCENT:isPay?"#A29BFE":isToday?ACCENT:MUTED}}>{day}</div>
-              {(isSess||isPay)&&<div style={{width:4,height:4,borderRadius:"50%",background:isSess?ACCENT:"#A29BFE",margin:"1px auto 0"}}/>}
-            </div>
-          );
+          return(<div key={day} style={{textAlign:"center",borderRadius:7,padding:"5px 1px",background:isSess?`${ACCENT}22`:isPay?"#A29BFE22":"transparent",border:isToday?`1.5px solid ${ACCENT}`:isSess?`1px solid ${ACCENT}50`:isPay?"1px solid #A29BFE50":"1px solid transparent"}}>
+            <div style={{fontSize:12,fontWeight:isSess||isPay?700:400,color:isSess?ACCENT:isPay?"#A29BFE":isToday?ACCENT:MUTED}}>{day}</div>
+            {(isSess||isPay)&&<div style={{width:4,height:4,borderRadius:"50%",background:isSess?ACCENT:"#A29BFE",margin:"1px auto 0"}}/>}
+          </div>);
         })}
       </div>
       <div style={{display:"flex",gap:12,marginTop:10,paddingTop:8,borderTop:`1px solid ${BORDER}`}}>
@@ -143,32 +161,29 @@ function MiniCalendar({ sessionDates=[], paymentDates=[] }) {
 }
 
 // ─── GLOBAL CALENDAR ─────────────────────────────────────────────────────────
-function GlobalCalendar({ clients }) {
+function GlobalCalendar({clients}){
   const now=new Date();
-  const [vy,setVy]=useState(now.getFullYear());
-  const [vm,setVm]=useState(now.getMonth());
-  const [selDay,setSelDay]=useState(null);
-  const dim=getDaysInMonth(vy,vm), fd=getFirstDayOfMonth(vy,vm), ts=today();
+  const[vy,setVy]=useState(now.getFullYear());
+  const[vm,setVm]=useState(now.getMonth());
+  const[selDay,setSelDay]=useState(null);
+  const dim=getDaysInMonth(vy,vm),fd=getFirstDayOfMonth(vy,vm),ts=today();
   const dayMap={};
   clients.forEach((c,ci)=>{
     const color=CLIENT_COLORS[ci%CLIENT_COLORS.length];
-    (c.history||[]).forEach(h=>{
-      const[y,m,d]=h.date.split("-").map(Number);
-      if(y===vy&&m-1===vm){if(!dayMap[d])dayMap[d]=[];dayMap[d].push({clientName:c.name,color,type:h.type,sessionPrice:c.sessionPrice,amount:h.amount,time:h.time});}
-    });
+    (c.history||[]).forEach(h=>{const[y,m,d]=h.date.split("-").map(Number);if(y===vy&&m-1===vm){if(!dayMap[d])dayMap[d]=[];dayMap[d].push({clientName:c.name,color,type:h.type,sessionPrice:c.sessionPrice,amount:h.amount,time:h.time});}});
   });
-  const [ty,tm,td]=ts.split("-").map(Number); const today_d=ty===vy&&tm-1===vm?td:null;
+  const[ty,tm,td]=ts.split("-").map(Number);const today_d=ty===vy&&tm-1===vm?td:null;
   function prev(){if(vm===0){setVy(y=>y-1);setVm(11);}else setVm(m=>m-1);}
   function next(){if(vm===11){setVy(y=>y+1);setVm(0);}else setVm(m=>m+1);}
-  const cells=[]; for(let i=0;i<fd;i++) cells.push(null); for(let d=1;d<=dim;d++) cells.push(d);
+  const cells=[];for(let i=0;i<fd;i++)cells.push(null);for(let d=1;d<=dim;d++)cells.push(d);
   const monthSessions=Object.values(dayMap).flat().filter(e=>e.type==="session").length;
   const monthIncome=clients.flatMap(c=>(c.history||[]).filter(h=>{const[y,m]=h.date.split("-").map(Number);return y===vy&&m-1===vm&&h.type==="payment";}).map(h=>Number(h.amount||0))).reduce((a,b)=>a+b,0);
   const selEvents=selDay?(dayMap[selDay]||[]):[];
-  return (
+  return(
     <div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
-        <div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:12,padding:"12px 14px"}}><div style={{fontSize:22,fontWeight:900,color:ACCENT}}>{monthSessions}</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px"}}>Antrenamente luna</div></div>
-        <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:"12px 14px"}}><div style={{fontSize:22,fontWeight:900,color:"#A29BFE"}}>{monthIncome} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px"}}>Plăți luna</div></div>
+        <div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:12,padding:"12px 14px"}}><div style={{fontSize:22,fontWeight:900,color:ACCENT}}>{monthSessions}</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Antrenamente luna</div></div>
+        <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:"12px 14px"}}><div style={{fontSize:22,fontWeight:900,color:"#A29BFE"}}>{monthIncome} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Plăți luna</div></div>
       </div>
       <div style={{background:CARD2,borderRadius:14,padding:14,border:`1px solid ${BORDER}`,marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
@@ -179,16 +194,12 @@ function GlobalCalendar({ clients }) {
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:6}}>{DAY_NAMES.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:MUTED}}>{d}</div>)}</div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
           {cells.map((day,i)=>{
-            if(!day) return <div key={`e${i}`}/>;
+            if(!day)return<div key={`e${i}`}/>;
             const events=dayMap[day]||[],isToday=day===today_d,isSel=day===selDay;
-            return (
-              <div key={day} onClick={()=>setSelDay(day===selDay?null:day)} style={{borderRadius:8,padding:"6px 2px 4px",cursor:events.length>0||isToday?"pointer":"default",background:isSel?`${ACCENT}20`:isToday?`${ACCENT}0D`:events.length>0?CARD:"transparent",border:isSel?`1.5px solid ${ACCENT}`:isToday?`1px solid ${ACCENT}60`:events.length>0?`1px solid ${BORDER}`:"1px solid transparent",transition:"all 0.1s"}}>
-                <div style={{textAlign:"center",fontSize:12,fontWeight:events.length>0?700:400,color:isToday?ACCENT:events.length>0?TEXT:MUTED}}>{day}</div>
-                <div style={{display:"flex",justifyContent:"center",flexWrap:"wrap",gap:2,marginTop:3,minHeight:7}}>
-                  {events.slice(0,4).map((e,di)=><div key={di} style={{width:5,height:5,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.color}}/>)}
-                </div>
-              </div>
-            );
+            return(<div key={day} onClick={()=>setSelDay(day===selDay?null:day)} style={{borderRadius:8,padding:"6px 2px 4px",cursor:events.length>0||isToday?"pointer":"default",background:isSel?`${ACCENT}20`:isToday?`${ACCENT}0D`:events.length>0?CARD:"transparent",border:isSel?`1.5px solid ${ACCENT}`:isToday?`1px solid ${ACCENT}60`:events.length>0?`1px solid ${BORDER}`:"1px solid transparent",transition:"all 0.1s"}}>
+              <div style={{textAlign:"center",fontSize:12,fontWeight:events.length>0?700:400,color:isToday?ACCENT:events.length>0?TEXT:MUTED}}>{day}</div>
+              <div style={{display:"flex",justifyContent:"center",flexWrap:"wrap",gap:2,marginTop:3,minHeight:7}}>{events.slice(0,4).map((e,di)=><div key={di} style={{width:5,height:5,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.color}}/>)}</div>
+            </div>);
           })}
         </div>
       </div>
@@ -205,82 +216,45 @@ function GlobalCalendar({ clients }) {
             ))}
         </div>
       )}
-      {clients.length>0&&(
-        <><div style={{fontSize:11,fontWeight:700,color:MUTED,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>Legendă clienți</div>
-        <div style={{display:"flex",flexWrap:"wrap",gap:7}}>
-          {clients.map((c,ci)=>(
-            <div key={c.id} style={{display:"flex",alignItems:"center",gap:5,background:CARD2,borderRadius:8,padding:"5px 10px",border:`1px solid ${BORDER}`}}>
-              <div style={{width:8,height:8,borderRadius:"50%",background:CLIENT_COLORS[ci%CLIENT_COLORS.length]}}/>
-              <span style={{fontSize:12,fontWeight:600}}>{c.name}</span>
-            </div>
-          ))}
-        </div></>
-      )}
+      {clients.length>0&&(<><div style={{fontSize:11,fontWeight:700,color:MUTED,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>Legendă</div><div style={{display:"flex",flexWrap:"wrap",gap:7}}>{clients.map((c,ci)=>(<div key={c.id} style={{display:"flex",alignItems:"center",gap:5,background:CARD2,borderRadius:8,padding:"5px 10px",border:`1px solid ${BORDER}`}}><div style={{width:8,height:8,borderRadius:"50%",background:CLIENT_COLORS[ci%CLIENT_COLORS.length]}}/><span style={{fontSize:12,fontWeight:600}}>{c.name}</span></div>))}</div></>)}
     </div>
   );
 }
 
-// ─── MEASUREMENTS SECTION ─────────────────────────────────────────────────────
-function MeasurementsSection({ clientId, trainerId, readOnly=false }) {
-  const S=useS();
-  const [measurements,setMeasurements]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [showForm,setShowForm]=useState(false);
-  const [form,setForm]=useState({date:today(),weight:"",arms:"",hips:"",legs:"",notes:""});
-  const [saving,setSaving]=useState(false);
-
-  useEffect(()=>{
-    supabase.from("measurements").select("*").eq("client_id",clientId).order("date",{ascending:false})
-      .then(({data})=>{ if(data) setMeasurements(data); setLoading(false); });
-  },[clientId]);
-
-  async function saveMeasurement() {
+// ─── MEASUREMENTS ─────────────────────────────────────────────────────────────
+function MeasurementsSection({clientId,readOnly=false}){
+  const[measurements,setMeasurements]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[showForm,setShowForm]=useState(false);
+  const[form,setForm]=useState({date:today(),weight:"",arms:"",hips:"",legs:"",notes:""});
+  const[saving,setSaving]=useState(false);
+  useEffect(()=>{supabase.from("measurements").select("*").eq("client_id",clientId).order("date",{ascending:false}).then(({data})=>{if(data)setMeasurements(data);setLoading(false);});},[clientId]);
+  async function save(){
     setSaving(true);
-    const {data,error}=await supabase.from("measurements").insert({
-      client_id:clientId, trainer_id:trainerId,
-      date:form.date,
-      weight:form.weight?Number(form.weight):null,
-      arms:form.arms?Number(form.arms):null,
-      hips:form.hips?Number(form.hips):null,
-      legs:form.legs?Number(form.legs):null,
-      notes:form.notes||null,
-    }).select().single();
-    if(!error&&data){ setMeasurements(prev=>[data,...prev]); setShowForm(false); setForm({date:today(),weight:"",arms:"",hips:"",legs:"",notes:""}); }
+    const{data,error}=await supabase.from("measurements").insert({client_id:clientId,date:form.date,weight:form.weight?Number(form.weight):null,arms:form.arms?Number(form.arms):null,hips:form.hips?Number(form.hips):null,legs:form.legs?Number(form.legs):null,notes:form.notes||null}).select().single();
+    if(!error&&data){setMeasurements(p=>[data,...p]);setShowForm(false);setForm({date:today(),weight:"",arms:"",hips:"",legs:"",notes:""});}
     setSaving(false);
   }
-
-  async function deleteMeasurement(id) {
-    await supabase.from("measurements").delete().eq("id",id);
-    setMeasurements(prev=>prev.filter(m=>m.id!==id));
-  }
-
-  return (
+  async function del(id){await supabase.from("measurements").delete().eq("id",id);setMeasurements(p=>p.filter(m=>m.id!==id));}
+  return(
     <div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
         <div style={S.sTitle}>📏 Măsurători</div>
         {!readOnly&&<button style={S.btn("success")} onClick={()=>setShowForm(true)}>+ Adaugă</button>}
       </div>
-      {loading?<div style={{color:MUTED,fontSize:13}}>Se încarcă...</div>:
-        measurements.length===0?<div style={{color:MUTED,fontSize:13,padding:"10px 0"}}>Nicio măsurătoare încă</div>:
+      {loading?<div style={{color:MUTED,fontSize:13}}>Se încarcă...</div>:measurements.length===0?<div style={{color:MUTED,fontSize:13,padding:"10px 0"}}>Nicio măsurătoare încă</div>:
         measurements.map(m=>(
           <div key={m.id} style={{...S.card,padding:"12px 14px",marginBottom:8}}>
-            <div style={S.sb}>
-              <div style={{fontSize:12,fontWeight:700,color:MUTED}}>{formatDate(m.date)}</div>
-              {!readOnly&&<button style={{...S.btn("icon"),color:ACCENT2}} onClick={()=>deleteMeasurement(m.id)}>✕</button>}
-            </div>
+            <div style={S.sb}><div style={{fontSize:12,fontWeight:700,color:MUTED}}>{formatDate(m.date)}</div>{!readOnly&&<button style={{...S.btn("icon"),color:ACCENT2}} onClick={()=>del(m.id)}>✕</button>}</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:8}}>
-              {[["⚖️ Greutate",m.weight,"kg"],["💪 Brațe",m.arms,"cm"],["🫀 Șolduri",m.hips,"cm"],["🦵 Picioare",m.legs,"cm"]].map(([label,val,unit])=>(
-                val!=null&&<div key={label} style={{background:CARD2,borderRadius:8,padding:"8px 10px"}}>
-                  <div style={{fontSize:11,color:MUTED,fontWeight:600}}>{label}</div>
-                  <div style={{fontSize:16,fontWeight:800,color:ACCENT,marginTop:2}}>{val} <span style={{fontSize:11,color:MUTED}}>{unit}</span></div>
-                </div>
+              {[["⚖️ Greutate",m.weight,"kg"],["💪 Brațe",m.arms,"cm"],["🫀 Șolduri",m.hips,"cm"],["🦵 Picioare",m.legs,"cm"]].map(([label,val,unit])=>val!=null&&(
+                <div key={label} style={{background:CARD2,borderRadius:8,padding:"8px 10px"}}><div style={{fontSize:11,color:MUTED,fontWeight:600}}>{label}</div><div style={{fontSize:16,fontWeight:800,color:ACCENT,marginTop:2}}>{val} <span style={{fontSize:11,color:MUTED}}>{unit}</span></div></div>
               ))}
             </div>
             {m.notes&&<div style={{fontSize:12,color:MUTED,marginTop:8,fontStyle:"italic"}}>"{m.notes}"</div>}
           </div>
         ))
       }
-
       {showForm&&(
         <div style={S.modal} onClick={()=>setShowForm(false)}>
           <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
@@ -292,12 +266,9 @@ function MeasurementsSection({ clientId, trainerId, readOnly=false }) {
                 <div key={key}><label style={S.label}>{label}</label><input style={S.input} type="number" placeholder="0" value={form[key]} onChange={e=>setForm(p=>({...p,[key]:e.target.value}))}/></div>
               ))}
             </div>
-            <label style={S.label}>Note (opțional)</label>
+            <label style={S.label}>Note</label>
             <input style={{...S.input,marginBottom:18}} placeholder="Observații..." value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))}/>
-            <div style={{display:"flex",gap:8}}>
-              <button style={{...S.btn(),flex:1}} onClick={()=>setShowForm(false)}>Anulează</button>
-              <button style={{...S.btn("primary"),flex:2}} onClick={saveMeasurement} disabled={saving}>{saving?"Se salvează...":"✅ Salvează"}</button>
-            </div>
+            <div style={{display:"flex",gap:8}}><button style={{...S.btn(),flex:1}} onClick={()=>setShowForm(false)}>Anulează</button><button style={{...S.btn("primary"),flex:2}} onClick={save} disabled={saving}>{saving?"Se salvează...":"✅ Salvează"}</button></div>
           </div>
         </div>
       )}
@@ -305,87 +276,92 @@ function MeasurementsSection({ clientId, trainerId, readOnly=false }) {
   );
 }
 
-// ─── PROGRESS PHOTOS SECTION ──────────────────────────────────────────────────
-function ProgressPhotosSection({ clientId, trainerId, readOnly=false }) {
-  const S=useS();
-  const [photos,setPhotos]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [uploading,setUploading]=useState(false);
-  const [viewPhoto,setViewPhoto]=useState(null);
-  const [photoDate,setPhotoDate]=useState(today());
-  const [showDatePick,setShowDatePick]=useState(false);
+
+// ─── SIGNED PHOTO COMPONENTS ──────────────────────────────────────────────────
+function SignedPhotoThumb({photo, onClick}) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    getSignedUrl(photo.path).then(setUrl);
+  }, [photo.path]);
+  return (
+    <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:`1px solid ${BORDER}`,cursor:"pointer",background:CARD2,aspectRatio:"1"}} onClick={onClick}>
+      {url
+        ? <img src={url} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+        : <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>⏳</div>
+      }
+      <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,0.7))",padding:"6px 4px 4px",fontSize:10,color:"#fff",fontWeight:600,textAlign:"center"}}>{formatDate(photo.date)}</div>
+    </div>
+  );
+}
+
+function SignedPhotoFull({path}) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    getSignedUrl(path).then(setUrl);
+  }, [path]);
+  if (!url) return <div style={{textAlign:"center",padding:24,color:MUTED,fontSize:13}}>Se încarcă...</div>;
+  return <img src={url} alt="" style={{width:"100%",borderRadius:12,marginTop:12,objectFit:"contain",maxHeight:400}}/>;
+}
+
+// ─── PROGRESS PHOTOS ──────────────────────────────────────────────────────────
+function ProgressPhotosSection({clientId,readOnly=false}){
+  const[photos,setPhotos]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[uploading,setUploading]=useState(false);
+  const[viewPhoto,setViewPhoto]=useState(null);
+  const[photoDate,setPhotoDate]=useState(today());
+  const[showDatePick,setShowDatePick]=useState(false);
   const fileRef=useRef();
-
-  useEffect(()=>{
-    supabase.from("progress_photos").select("*").eq("client_id",clientId).order("date",{ascending:false})
-      .then(({data})=>{ if(data) setPhotos(data); setLoading(false); });
-  },[clientId]);
-
-  async function handleFileChange(e) {
-    const file=e.target.files[0]; if(!file) return;
+  useEffect(()=>{supabase.from("progress_photos").select("*").eq("client_id",clientId).order("date",{ascending:false}).then(({data})=>{if(data)setPhotos(data);setLoading(false);});},[clientId]);
+  async function handleFile(e){
+    const file=e.target.files[0];if(!file)return;
     setUploading(true);
-    try {
+    try{
       const ext=file.name.split(".").pop();
       const path=`${clientId}/${Date.now()}.${ext}`;
-      const {error:upErr}=await supabase.storage.from("progress-photos").upload(path,file,{upsert:true});
-      if(upErr) throw upErr;
-      const {data:{publicUrl}}=supabase.storage.from("progress-photos").getPublicUrl(path);
-      const {data,error:dbErr}=await supabase.from("progress_photos").insert({
-        client_id:clientId, trainer_id:trainerId, date:photoDate, photo_url:publicUrl, path
-      }).select().single();
-      if(!dbErr&&data) setPhotos(prev=>[data,...prev]);
-    } catch(err) { alert("Eroare la încărcare: "+err.message); }
-    setUploading(false); setShowDatePick(false);
-    e.target.value="";
+      const{error:upErr}=await supabase.storage.from("progress-photos").upload(path,file,{upsert:true});
+      if(upErr)throw upErr;
+      // Store only the path — signed URL generated at display time
+      const{data,error:dbErr}=await supabase.from("progress_photos").insert({client_id:clientId,date:photoDate,photo_url:"",path}).select().single();
+      if(!dbErr&&data)setPhotos(p=>[data,...p]);
+    }catch(err){alert("Eroare: "+err.message);}
+    setUploading(false);setShowDatePick(false);e.target.value="";
   }
-
-  async function deletePhoto(photo) {
+  async function del(photo){
     await supabase.storage.from("progress-photos").remove([photo.path]);
     await supabase.from("progress_photos").delete().eq("id",photo.id);
-    setPhotos(prev=>prev.filter(p=>p.id!==photo.id));
+    setPhotos(p=>p.filter(x=>x.id!==photo.id));
   }
-
-  return (
+  return(
     <div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
         <div style={S.sTitle}>📸 Poze progres</div>
         {!readOnly&&<button style={S.btn("success")} onClick={()=>setShowDatePick(true)}>+ Adaugă</button>}
       </div>
-      {loading?<div style={{color:MUTED,fontSize:13}}>Se încarcă...</div>:
-        photos.length===0?<div style={{color:MUTED,fontSize:13,padding:"10px 0"}}>Nicio poză încă</div>:
+      {loading?<div style={{color:MUTED,fontSize:13}}>Se încarcă...</div>:photos.length===0?<div style={{color:MUTED,fontSize:13,padding:"10px 0"}}>Nicio poză încă</div>:
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
           {photos.map(p=>(
-            <div key={p.id} style={{position:"relative",borderRadius:10,overflow:"hidden",border:`1px solid ${BORDER}`,cursor:"pointer"}} onClick={()=>setViewPhoto(p)}>
-              <img src={p.photo_url} alt="" style={{width:"100%",aspectRatio:"1",objectFit:"cover",display:"block"}}/>
-              <div style={{position:"absolute",bottom:0,left:0,right:0,background:"linear-gradient(transparent,rgba(0,0,0,0.7))",padding:"6px 4px 4px",fontSize:10,color:"#fff",fontWeight:600,textAlign:"center"}}>{formatDate(p.date)}</div>
-            </div>
+            <SignedPhotoThumb key={p.id} photo={p} onClick={()=>setViewPhoto(p)}/>
           ))}
         </div>
       }
-
       {showDatePick&&(
         <div style={S.modal} onClick={()=>setShowDatePick(false)}>
           <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
             <div style={{fontSize:18,fontWeight:800,marginBottom:16}}>📸 Adaugă poză</div>
             <label style={S.label}>Data pozei</label>
             <input type="date" style={{...S.input,marginBottom:18,colorScheme:"dark"}} value={photoDate} onChange={e=>setPhotoDate(e.target.value)}/>
-            <input type="file" accept="image/*" ref={fileRef} style={{display:"none"}} onChange={handleFileChange}/>
-            <button style={{...S.btn("primary"),width:"100%",justifyContent:"center"}} onClick={()=>fileRef.current.click()} disabled={uploading}>
-              {uploading?"Se încarcă...":"📷 Alege o poză"}
-            </button>
+            <input type="file" accept="image/*" ref={fileRef} style={{display:"none"}} onChange={handleFile}/>
+            <button style={{...S.btn("primary"),width:"100%",justifyContent:"center"}} onClick={()=>fileRef.current.click()} disabled={uploading}>{uploading?"Se încarcă...":"📷 Alege o poză"}</button>
             <button style={{...S.btn(),width:"100%",justifyContent:"center",marginTop:8}} onClick={()=>setShowDatePick(false)}>Anulează</button>
           </div>
         </div>
       )}
-
       {viewPhoto&&(
-        <div style={{...S.modal,alignItems:"center"}} onClick={()=>setViewPhoto(null)}>
-          <div style={{background:CARD,borderRadius:20,padding:16,width:"100%",maxWidth:400,margin:16}} onClick={e=>e.stopPropagation()}>
-            <div style={S.sb}>
-              <div style={{fontSize:14,fontWeight:700}}>{formatDate(viewPhoto.date)}</div>
-              {!readOnly&&<button style={{...S.btn("danger"),padding:"6px 12px",fontSize:12}} onClick={()=>{deletePhoto(viewPhoto);setViewPhoto(null);}}>🗑 Șterge</button>}
-            </div>
-            <img src={viewPhoto.photo_url} alt="" style={{width:"100%",borderRadius:12,marginTop:12,objectFit:"contain",maxHeight:400}}/>
+        <div style={{...S.modal}} onClick={()=>setViewPhoto(null)}>
+          <div style={{background:CARD,borderRadius:20,padding:16,width:"100%",maxWidth:400}} onClick={e=>e.stopPropagation()}>
+            <div style={S.sb}><div style={{fontSize:14,fontWeight:700}}>{formatDate(viewPhoto.date)}</div>{!readOnly&&<button style={{...S.btn("danger"),padding:"6px 12px",fontSize:12}} onClick={()=>{del(viewPhoto);setViewPhoto(null);}}>🗑 Șterge</button>}</div>
+            <SignedPhotoFull path={viewPhoto.path}/>
           </div>
         </div>
       )}
@@ -393,46 +369,112 @@ function ProgressPhotosSection({ clientId, trainerId, readOnly=false }) {
   );
 }
 
-// ─── HISTORY ENTRY ────────────────────────────────────────────────────────────
-function HistoryEntry({ h, clientId, onDelete }) {
-  const S=useS();
-  return (
-    <div style={{...S.card,padding:"11px 14px",marginBottom:7}}>
-      <div style={S.sb}>
-        <div style={S.row}>
-          <span style={{fontSize:17}}>{h.type==="payment"?"💳":"🏋️"}</span>
+// ─── PROFILE VIEW ─────────────────────────────────────────────────────────────
+function ProfileView({user,profile,setProfile}){
+  const[name,setName]=useState(profile?.name||"");
+  const[dob,setDob]=useState(profile?.date_of_birth||"");
+  const[joinCode,setJoinCode]=useState(profile?.join_code||"");
+  const[editCode,setEditCode]=useState(false);
+  const[newCode,setNewCode]=useState(profile?.join_code||"");
+  const[saving,setSaving]=useState(false);
+  const[msg,setMsg]=useState("");
+
+  async function saveProfile(){
+    setSaving(true);setMsg("");
+    const{error}=await supabase.from("profiles").update({name,date_of_birth:dob||null}).eq("id",user.id);
+    if(!error){setProfile(p=>({...p,name,date_of_birth:dob}));setMsg("Salvat cu succes!");}
+    else setMsg("Eroare la salvare.");
+    setSaving(false);
+    setTimeout(()=>setMsg(""),3000);
+  }
+
+  async function saveCode(){
+    if(!newCode.trim()){setMsg("Codul nu poate fi gol.");return;}
+    const code=newCode.trim().toUpperCase();
+    setSaving(true);setMsg("");
+    const{error}=await supabase.from("profiles").update({join_code:code}).eq("id",user.id);
+    if(!error){setJoinCode(code);setProfile(p=>({...p,join_code:code}));setEditCode(false);setMsg("Cod actualizat! Clienții existenți rămân conectați.");}
+    else setMsg("Eroare — codul poate fi deja folosit.");
+    setSaving(false);
+    setTimeout(()=>setMsg(""),4000);
+  }
+
+  return(
+    <div>
+      <div style={S.sTitle}>Profilul meu</div>
+
+      {/* Account type badge */}
+      <div style={{...S.card,marginBottom:12}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <div style={{width:52,height:52,borderRadius:14,background:`linear-gradient(135deg,${ACCENT},#00B87A)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>{profile?.role==="trainer"?"🏋️":"🏃"}</div>
           <div>
-            <div style={{fontSize:13,fontWeight:600}}>{h.note}</div>
-            <div style={{fontSize:11,color:MUTED}}>{formatDateTime(h.date,h.time)}</div>
+            <div style={{fontSize:17,fontWeight:800}}>{profile?.name||user?.email}</div>
+            <div style={{fontSize:12,color:MUTED,marginTop:2}}>{user?.email}</div>
+            <span style={{...S.badge(profile?.role==="trainer"?ACCENT:"#A29BFE",profile?.role==="trainer"?`${ACCENT}20`:"#A29BFE20"),marginTop:6,display:"inline-flex"}}>{profile?.role==="trainer"?"🏋️ Antrenor":"🏃 Client"}</span>
           </div>
         </div>
-        <div style={S.row}>
-          {h.type==="payment"&&<span style={S.badge(ACCENT,`${ACCENT}20`)}>+{h.amount} RON</span>}
-          {h.type==="session"&&h.sessionPrice>0&&<span style={S.badge("#A29BFE","#A29BFE20")}>{h.sessionPrice} RON</span>}
-          <button style={{...S.btn("icon"),color:ACCENT2,marginLeft:2}} onClick={()=>onDelete(h.id)}>✕</button>
-        </div>
       </div>
+
+      {/* Personal info */}
+      <div style={S.card}>
+        <div style={{fontSize:14,fontWeight:700,marginBottom:14}}>Informații personale</div>
+        <label style={S.label}>Nume complet</label>
+        <input style={{...S.input,marginBottom:12}} value={name} onChange={e=>setName(e.target.value)} placeholder="Numele tău"/>
+        <label style={S.label}>Email</label>
+        <input style={{...S.input,marginBottom:12,opacity:0.6}} value={user?.email||""} disabled/>
+        <label style={S.label}>Data nașterii</label>
+        <input type="date" style={{...S.input,marginBottom:16,colorScheme:"dark"}} value={dob} onChange={e=>setDob(e.target.value)}/>
+        <button style={{...S.btn("primary"),width:"100%",justifyContent:"center"}} onClick={saveProfile} disabled={saving}>{saving?"Se salvează...":"💾 Salvează"}</button>
+      </div>
+
+      {/* Trainer join code section */}
+      {profile?.role==="trainer"&&(
+        <div style={S.card}>
+          <div style={{fontSize:14,fontWeight:700,marginBottom:6}}>Codul tău de antrenor</div>
+          <div style={{fontSize:12,color:MUTED,marginBottom:14}}>Oferă acest cod clienților tăi la înregistrare. Poți schimba codul oricând — clienții existenți rămân conectați.</div>
+          {!editCode?(
+            <div>
+              <div style={{display:"flex",alignItems:"center",gap:10,background:CARD2,borderRadius:12,padding:"14px 16px",border:`1px solid ${BORDER}`,marginBottom:12}}>
+                <div style={{fontSize:24,fontWeight:900,color:ACCENT,letterSpacing:"0.15em",flex:1}}>{joinCode}</div>
+                <button style={S.btn("ghost")} onClick={()=>{setNewCode(joinCode);setEditCode(true);}}>✏️ Schimbă</button>
+              </div>
+              <div style={{fontSize:11,color:MUTED}}>💡 Trimite acest cod clienților tăi pentru a se înregistra.</div>
+            </div>
+          ):(
+            <div>
+              <label style={S.label}>Cod nou (6 caractere)</label>
+              <input style={{...S.input,marginBottom:10,textTransform:"uppercase",letterSpacing:"0.1em"}} maxLength={10} value={newCode} onChange={e=>setNewCode(e.target.value.toUpperCase())} placeholder="ex. ABC123"/>
+              <div style={{display:"flex",gap:8}}>
+                <button style={{...S.btn(),flex:1}} onClick={()=>setEditCode(false)}>Anulează</button>
+                <button style={{...S.btn("primary"),flex:2}} onClick={saveCode} disabled={saving}>{saving?"Se salvează...":"✅ Salvează codul"}</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {msg&&<div style={{background:msg.includes("Eroare")?`${ACCENT2}15`:`${ACCENT}15`,border:`1px solid ${msg.includes("Eroare")?ACCENT2:ACCENT}40`,borderRadius:10,padding:"10px 14px",fontSize:13,color:msg.includes("Eroare")?ACCENT2:ACCENT,marginTop:10}}>{msg}</div>}
     </div>
   );
 }
 
 // ─── TRAINER APP ──────────────────────────────────────────────────────────────
-function TrainerApp({ user }) {
-  const S=useS();
-  const [clients,setClients,dbLoading]=useStorage(user);
-  const [tab,setTab]=useState("clients");
-  const [modal,setModal]=useState(null);
-  const [editForm,setEditForm]=useState(null);
-  const [selClient,setSelClient]=useState(null);
-  const [clientTab,setClientTab]=useState("info"); // info | measures | photos
-  const [sessDate,setSessDate]=useState(today());
-  const [sessTime,setSessTime]=useState(nowTime());
-  const [payAmount,setPayAmount]=useState("");
-  const [paySessions,setPaySessions]=useState("");
-  const [payDueDays,setPayDueDays]=useState(30);
-  const [payDate,setPayDate]=useState(today());
-  const [deleteConfirm,setDeleteConfirm]=useState(null);
-  const [deleteClientConfirm,setDeleteClientConfirm]=useState(null);
+function TrainerApp({user,profile,setProfile}){
+  const[clients,setClients,dbLoading]=useStorage(user);
+  const[view,setView]=useState("clients");
+  const[drawerOpen,setDrawerOpen]=useState(false);
+  const[modal,setModal]=useState(null);
+  const[editForm,setEditForm]=useState(null);
+  const[selClient,setSelClient]=useState(null);
+  const[clientTab,setClientTab]=useState("info");
+  const[sessDate,setSessDate]=useState(today());
+  const[sessTime,setSessTime]=useState(nowTime());
+  const[payAmount,setPayAmount]=useState("");
+  const[paySessions,setPaySessions]=useState("");
+  const[payDueDays,setPayDueDays]=useState(30);
+  const[payDate,setPayDate]=useState(today());
+  const[deleteConfirm,setDeleteConfirm]=useState(null);
+  const[deleteClientConfirm,setDeleteClientConfirm]=useState(null);
 
   const ts=today();
   const todaySess=clients.flatMap(c=>(c.history||[]).filter(h=>h.type==="session"&&h.date===ts).map(h=>({...h,clientName:c.name,sessionPrice:c.sessionPrice||0})));
@@ -442,103 +484,85 @@ function TrainerApp({ user }) {
   const thisMonth=ts.slice(0,7);
   const monthIncome=clients.flatMap(c=>(c.history||[]).filter(h=>h.type==="payment"&&h.date?.startsWith(thisMonth)).map(h=>Number(h.amount||0))).reduce((a,b)=>a+b,0);
 
-  function openAdd() { setEditForm({id:"",name:"",age:"",gender:"Male",email:"",fee:"",sessionPrice:"",paidDate:null,dueDays:30,nextDue:null,sessionsLeft:0,totalSessions:0,history:[]}); setModal({type:"addClient"}); }
-  function openEdit(c) { setEditForm({...c}); setModal({type:"editClient"}); }
-  function saveClient() {
-    if(!editForm.name.trim()) return;
-    if(modal.type==="addClient") setClients(prev=>[...prev,{...editForm,id:Date.now().toString(),history:[]}]);
+  function openAdd(){setEditForm({id:"",name:"",age:"",gender:"Male",email:"",fee:"",sessionPrice:"",paidDate:null,dueDays:30,nextDue:null,sessionsLeft:0,totalSessions:0,history:[]});setModal({type:"addClient"});}
+  function openEdit(c){setEditForm({...c});setModal({type:"editClient"});}
+  function saveClient(){
+    if(!editForm.name.trim())return;
+    if(modal.type==="addClient")setClients(prev=>[...prev,{...editForm,id:crypto.randomUUID(),history:[]}]);
     else setClients(prev=>prev.map(c=>c.id===editForm.id?editForm:c));
     setModal(null);
   }
-  function deleteClient(id) { setClients(prev=>prev.filter(c=>c.id!==id)); setSelClient(null); setModal(null); }
-  function openMarkSession(clientId) { setSessDate(today()); setSessTime(nowTime()); setModal({type:"markSession",clientId}); }
-  function confirmSession() {
-    setClients(prev=>prev.map(c=>{
-      if(c.id!==modal.clientId) return c;
-      return {...c,sessionsLeft:Math.max(0,(c.sessionsLeft||0)-1),history:[...(c.history||[]),{id:Date.now().toString(),type:"session",date:sessDate,time:sessTime,sessionPrice:c.sessionPrice||0,note:"Ședință completată"}]};
-    }));
+  function deleteClient(id){setClients(prev=>prev.filter(c=>c.id!==id));setSelClient(null);setModal(null);}
+  function openMarkSession(clientId){setSessDate(today());setSessTime(nowTime());setModal({type:"markSession",clientId});}
+  function confirmSession(){
+    setClients(prev=>prev.map(c=>{if(c.id!==modal.clientId)return c;return{...c,sessionsLeft:Math.max(0,(c.sessionsLeft||0)-1),history:[...(c.history||[]),{id:crypto.randomUUID(),type:"session",date:sessDate,time:sessTime,sessionPrice:c.sessionPrice||0,note:"Ședință completată"}]};}));
     setModal(null);
   }
-  function openMarkPaid(clientId) { const c=clients.find(x=>x.id===clientId); setPayAmount(c?.fee||""); setPaySessions(""); setPayDueDays(c?.dueDays||30); setPayDate(today()); setModal({type:"markPaid",clientId}); }
-  function confirmPayment() {
-    setClients(prev=>prev.map(c=>{
-      if(c.id!==modal.clientId) return c;
-      const nd=addDays(payDate,payDueDays);
-      return {...c,paidDate:payDate,nextDue:nd,dueDays:payDueDays,sessionsLeft:(c.sessionsLeft||0)+Number(paySessions||0),totalSessions:(c.totalSessions||0)+Number(paySessions||0),fee:payAmount||c.fee,history:[...(c.history||[]),{id:Date.now().toString(),type:"payment",date:payDate,time:"",amount:Number(payAmount||c.fee||0),sessions:Number(paySessions||0),note:`Plată: ${paySessions} ședințe`}]};
-    }));
+  function openMarkPaid(clientId){const c=clients.find(x=>x.id===clientId);setPayAmount(c?.fee||"");setPaySessions("");setPayDueDays(c?.dueDays||30);setPayDate(today());setModal({type:"markPaid",clientId});}
+  function confirmPayment(){
+    setClients(prev=>prev.map(c=>{if(c.id!==modal.clientId)return c;const nd=addDays(payDate,payDueDays);return{...c,paidDate:payDate,nextDue:nd,dueDays:payDueDays,sessionsLeft:(c.sessionsLeft||0)+Number(paySessions||0),totalSessions:(c.totalSessions||0)+Number(paySessions||0),fee:payAmount||c.fee,history:[...(c.history||[]),{id:crypto.randomUUID(),type:"payment",date:payDate,time:"",amount:Number(payAmount||c.fee||0),sessions:Number(paySessions||0),note:`Plată: ${paySessions} ședințe`}]};}));
     setModal(null);
   }
-  function deleteEntry(clientId,entryId) {
-    setClients(prev=>prev.map(c=>{
-      if(c.id!==clientId) return c;
-      const entry=(c.history||[]).find(h=>h.id===entryId);
-      return {...c,sessionsLeft:(c.sessionsLeft||0)+(entry?.type==="session"?1:0),history:(c.history||[]).filter(h=>h.id!==entryId)};
-    }));
+  function deleteEntry(clientId,entryId){
+    setClients(prev=>prev.map(c=>{if(c.id!==clientId)return c;const entry=(c.history||[]).find(h=>h.id===entryId);return{...c,sessionsLeft:(c.sessionsLeft||0)+(entry?.type==="session"?1:0),history:(c.history||[]).filter(h=>h.id!==entryId)};}));
     setDeleteConfirm(null);
   }
 
   const client=selClient?clients.find(c=>c.id===selClient):null;
+  const navItems=[["clients","👥","Clienți"],["calendar","📅","Calendar"],["today","⚡","Azi"],["summary","📊","Sumar"],["profile","👤","Profil"]];
 
-  return (
+  const viewTitle=selClient&&client?client.name:navItems.find(([v])=>v===view)?.[2]||"";
+
+  return(
     <div style={S.app}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-      {dbLoading&&<div style={{position:"fixed",inset:0,background:BG,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:9999}}><div style={{fontSize:40,marginBottom:16}}>💪</div><div style={{color:ACCENT,fontSize:14,fontWeight:700}}>Se încarcă datele...</div></div>}
+      {dbLoading&&<div style={{position:"fixed",inset:0,background:BG,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:9999}}><div style={{fontSize:40,marginBottom:16}}>💪</div><div style={{color:ACCENT,fontSize:14,fontWeight:700}}>Se încarcă...</div></div>}
 
-      {/* HEADER */}
+      <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} items={navItems} onSelect={(v)=>{setView(v);setSelClient(null);}} activeView={view} user={user} profile={profile}/>
+
       <div style={S.header}>
         <div style={S.sb}>
           <div style={S.row}>
-            <div style={{width:34,height:34,borderRadius:9,background:`linear-gradient(135deg,${ACCENT},#00B87A)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}}>💪</div>
-            <div><div style={{fontSize:17,fontWeight:800,letterSpacing:"-0.3px"}}>PT Tracker</div><div style={{fontSize:10,color:MUTED,letterSpacing:"0.5px",textTransform:"uppercase"}}>Trainer</div></div>
+            <button onClick={()=>setDrawerOpen(true)} style={{background:"none",border:"none",cursor:"pointer",color:TEXT,fontSize:22,padding:"2px 6px 2px 0",lineHeight:1}}>☰</button>
+            <div style={{fontSize:16,fontWeight:800}}>{selClient&&client?<button style={{background:"none",border:"none",color:TEXT,cursor:"pointer",fontWeight:800,fontSize:16,fontFamily:"'DM Sans',sans-serif",padding:0}} onClick={()=>setSelClient(null)}>← {client.name}</button>:viewTitle}</div>
           </div>
           <div style={S.row}>
-            {tab==="clients"&&!selClient&&<button style={S.btn("primary")} onClick={openAdd}>+ Client</button>}
-            <button onClick={()=>supabase.auth.signOut()} title="Deconectare" style={{background:"transparent",border:`1px solid ${BORDER}`,borderRadius:9,padding:"6px 10px",color:MUTED,cursor:"pointer",fontSize:13,fontWeight:700}}>⏻</button>
+            {view==="clients"&&!selClient&&<button style={S.btn("primary")} onClick={openAdd}>+ Client</button>}
           </div>
-        </div>
-        <div style={S.navTabs}>
-          {[["clients","👥","Clienți"],["calendar","📅","Calendar"],["today","⚡","Azi"],["summary","📊","Sumar"]].map(([t,icon,label])=>(
-            <button key={t} style={S.tab(tab===t)} onClick={()=>{setTab(t);setSelClient(null);}}>{icon} {label}</button>
-          ))}
         </div>
       </div>
 
       <div style={S.main}>
         {/* CLIENTS LIST */}
-        {tab==="clients"&&!selClient&&(
-          <>
-            <div style={S.sTitle}>Clienții tăi ({clients.length})</div>
-            {clients.length===0&&<div style={{textAlign:"center",padding:"48px 24px",color:MUTED}}><div style={{fontSize:48,marginBottom:12}}>🏋️</div><div style={{fontWeight:700,fontSize:16,marginBottom:6}}>Niciun client încă</div><div style={{fontSize:14}}>Apasă "+ Client" pentru a începe</div></div>}
-            {clients.map(c=>{
-              const days=daysUntil(c.nextDue),overdue=days!==null&&days<0,soon=days!==null&&days>=0&&days<=5;
-              return (
-                <div key={c.id} style={{...S.card,cursor:"pointer",border:`1px solid ${overdue?"#FF6B6B50":BORDER}`}} onClick={()=>{setSelClient(c.id);setClientTab("info");}}>
-                  <div style={S.sb}>
-                    <div style={S.row}><div style={S.avatar(c.gender)}>{genderEmoji(c.gender)}</div><div><div style={{fontSize:15,fontWeight:700}}>{c.name}</div><div style={{fontSize:12,color:MUTED}}>{c.age?`${c.age} ani`:""} · {c.gender}</div></div></div>
-                    {c.nextDue?<span style={S.badge(overdue?ACCENT2:soon?"#FFB74D":ACCENT,overdue?`${ACCENT2}20`:soon?"#FFB74D20":`${ACCENT}20`)}>{overdue?`⚠ ${Math.abs(days)}z`:days===0?"⚡ Azi":`⏳ ${days}z`}</span>:<span style={S.badge(MUTED,CARD2)}>Neplătit</span>}
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginTop:10}}>
-                    <div style={S.statBox}><div style={{fontSize:17,fontWeight:800,color:ACCENT}}>{c.sessionsLeft??0}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>ȘEDINȚE</div></div>
-                    <div style={S.statBox}><div style={{fontSize:13,fontWeight:800,color:"#A29BFE"}}>{c.fee?`${c.fee} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>ABONAMENT</div></div>
-                    <div style={S.statBox}><div style={{fontSize:13,fontWeight:800,color:"#FFB74D"}}>{c.sessionPrice?`${c.sessionPrice} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>PE ȘEDINȚĂ</div></div>
-                  </div>
-                  {c.sessionsLeft>0&&c.totalSessions>0&&<div style={{height:5,borderRadius:3,background:BORDER,marginTop:10,overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(c.sessionsLeft/c.totalSessions)*100)}%`,background:ACCENT}}/></div>}
+        {view==="clients"&&!selClient&&(
+          <>{clients.length===0&&<div style={{textAlign:"center",padding:"48px 24px",color:MUTED}}><div style={{fontSize:48,marginBottom:12}}>🏋️</div><div style={{fontWeight:700,fontSize:16,marginBottom:6}}>Niciun client încă</div><div style={{fontSize:14}}>Apasă "+ Client" pentru a începe</div></div>}
+          {clients.map(c=>{
+            const days=daysUntil(c.nextDue),overdue=days!==null&&days<0,soon=days!==null&&days>=0&&days<=5;
+            return(
+              <div key={c.id} style={{...S.card,cursor:"pointer",border:`1px solid ${overdue?"#FF6B6B50":BORDER}`}} onClick={()=>{setSelClient(c.id);setClientTab("info");}}>
+                <div style={S.sb}>
+                  <div style={S.row}><div style={S.avatar(c.gender)}>{genderEmoji(c.gender)}</div><div><div style={{fontSize:15,fontWeight:700}}>{c.name}</div><div style={{fontSize:12,color:MUTED}}>{c.age?`${c.age} ani`:""}{c.age&&c.gender?" · ":""}{c.gender}</div></div></div>
+                  {c.nextDue?<span style={S.badge(overdue?ACCENT2:soon?"#FFB74D":ACCENT,overdue?`${ACCENT2}20`:soon?"#FFB74D20":`${ACCENT}20`)}>{overdue?`⚠ ${Math.abs(days)}z`:days===0?"⚡ Azi":`⏳ ${days}z`}</span>:<span style={S.badge(MUTED,CARD2)}>Neplătit</span>}
                 </div>
-              );
-            })}
-          </>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7,marginTop:10}}>
+                  <div style={S.statBox}><div style={{fontSize:17,fontWeight:800,color:ACCENT}}>{c.sessionsLeft??0}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>ȘEDINȚE</div></div>
+                  <div style={S.statBox}><div style={{fontSize:13,fontWeight:800,color:"#A29BFE"}}>{c.fee?`${c.fee} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>ABONAMENT</div></div>
+                  <div style={S.statBox}><div style={{fontSize:13,fontWeight:800,color:"#FFB74D"}}>{c.sessionPrice?`${c.sessionPrice} RON`:"—"}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>PE ȘEDINȚĂ</div></div>
+                </div>
+                {c.sessionsLeft>0&&c.totalSessions>0&&<div style={{height:5,borderRadius:3,background:BORDER,marginTop:10,overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(c.sessionsLeft/c.totalSessions)*100)}%`,background:ACCENT}}/></div>}
+              </div>
+            );
+          })}</>
         )}
 
         {/* CLIENT DETAIL */}
-        {tab==="clients"&&selClient&&client&&(()=>{
+        {view==="clients"&&selClient&&client&&(()=>{
           const sessionDates=(client.history||[]).filter(h=>h.type==="session").map(h=>h.date);
           const paymentDates=(client.history||[]).filter(h=>h.type==="payment").map(h=>h.date);
           const days=daysUntil(client.nextDue),overdue=days!==null&&days<0;
           const totalEarned=(client.history||[]).filter(h=>h.type==="payment").reduce((s,h)=>s+Number(h.amount||0),0);
-          return (
+          return(
             <>
-              <button style={{...S.btn("ghost"),marginBottom:14,fontSize:13}} onClick={()=>setSelClient(null)}>← Înapoi</button>
-              {/* Profile card */}
               <div style={S.card}>
                 <div style={S.sb}>
                   <div style={S.row}><div style={S.avatar(client.gender)}>{genderEmoji(client.gender)}</div><div><div style={{fontSize:19,fontWeight:800}}>{client.name}</div><div style={{fontSize:12,color:MUTED}}>{client.age?`${client.age} ani`:""} · {client.gender}{client.email?` · ${client.email}`:""}</div></div></div>
@@ -552,7 +576,6 @@ function TrainerApp({ user }) {
                 {client.sessionsLeft>0&&client.totalSessions>0&&<><div style={{height:5,borderRadius:3,background:BORDER,marginTop:12,overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(client.sessionsLeft/client.totalSessions)*100)}%`,background:ACCENT}}/></div><div style={{fontSize:11,color:MUTED,marginTop:4}}>{client.sessionsLeft} din {client.totalSessions} ședințe rămase</div></>}
                 {client.nextDue&&<><div style={S.divider}/><div style={S.sb}><div><div style={{fontSize:11,color:MUTED,fontWeight:600}}>URMĂTOAREA PLATĂ</div><div style={{fontSize:15,fontWeight:700,marginTop:2}}>{formatDate(client.nextDue)}</div></div><span style={S.badge(overdue?ACCENT2:days<=5?"#FFB74D":ACCENT,overdue?`${ACCENT2}20`:days<=5?"#FFB74D20":`${ACCENT}20`)}>{overdue?`${Math.abs(days)}z întârziere`:days===0?"Scade azi":`${days} zile`}</span></div></>}
               </div>
-              {/* Action buttons */}
               <div style={{display:"flex",gap:8,marginBottom:14}}>
                 <button style={{...S.btn("primary"),flex:1}} onClick={()=>openMarkPaid(client.id)}>💳 Plată</button>
                 <button style={{...S.btn("success"),flex:1}} onClick={()=>openMarkSession(client.id)}>✅ Ședință</button>
@@ -560,10 +583,9 @@ function TrainerApp({ user }) {
               {/* Sub-tabs */}
               <div style={{display:"flex",gap:4,background:`${CARD2}80`,borderRadius:10,padding:3,marginBottom:16}}>
                 {[["info","📋 Info"],["measures","📏 Măsurători"],["photos","📸 Poze"]].map(([t,label])=>(
-                  <button key={t} style={S.tab(clientTab===t)} onClick={()=>setClientTab(t)}>{label}</button>
+                  <button key={t} style={{flex:1,padding:"7px 0",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,transition:"all 0.2s",background:clientTab===t?ACCENT:"transparent",color:clientTab===t?"#000":MUTED,fontFamily:"'DM Sans',sans-serif"}} onClick={()=>setClientTab(t)}>{label}</button>
                 ))}
               </div>
-              {/* Info tab */}
               {clientTab==="info"&&(
                 <>
                   <div style={S.sTitle}>📅 Calendar prezență</div>
@@ -575,27 +597,30 @@ function TrainerApp({ user }) {
                   <div style={S.sTitle}>Istoric activitate</div>
                   {(client.history||[]).length===0&&<div style={{color:MUTED,fontSize:14,padding:"10px 0"}}>Nicio activitate încă</div>}
                   {[...(client.history||[])].reverse().map(h=>(
-                    <HistoryEntry key={h.id} h={h} clientId={client.id} onDelete={(eid)=>setDeleteConfirm({clientId:client.id,entryId:eid})}/>
+                    <div key={h.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}>
+                      <div style={S.sb}>
+                        <div style={S.row}><span style={{fontSize:17}}>{h.type==="payment"?"💳":"🏋️"}</span><div><div style={{fontSize:13,fontWeight:600}}>{h.note}</div><div style={{fontSize:11,color:MUTED}}>{formatDateTime(h.date,h.time)}</div></div></div>
+                        <div style={S.row}>
+                          {h.type==="payment"&&<span style={S.badge(ACCENT,`${ACCENT}20`)}>+{h.amount} RON</span>}
+                          {h.type==="session"&&h.sessionPrice>0&&<span style={S.badge("#A29BFE","#A29BFE20")}>{h.sessionPrice} RON</span>}
+                          <button style={{...S.btn("icon"),color:ACCENT2,marginLeft:2}} onClick={()=>setDeleteConfirm({clientId:client.id,entryId:h.id})}>✕</button>
+                        </div>
+                      </div>
+                    </div>
                   ))}
                 </>
               )}
-              {/* Measurements tab */}
-              {clientTab==="measures"&&<MeasurementsSection clientId={client.id} trainerId={user.id} readOnly={false}/>}
-              {/* Photos tab */}
-              {clientTab==="photos"&&<ProgressPhotosSection clientId={client.id} trainerId={user.id} readOnly={false}/>}
+              {clientTab==="measures"&&<MeasurementsSection clientId={client.id}/>}
+              {clientTab==="photos"&&<ProgressPhotosSection clientId={client.id}/>}
               <div style={S.divider}/>
               <button style={{...S.btn("danger"),width:"100%"}} onClick={()=>setDeleteClientConfirm(client.id)}>🗑 Șterge client</button>
             </>
           );
         })()}
 
-        {/* CALENDAR TAB */}
-        {tab==="calendar"&&(
-          <><div style={S.sTitle}>📅 Calendar general</div>{clients.length===0?<div style={{textAlign:"center",padding:"48px 20px",color:MUTED}}><div style={{fontSize:42,marginBottom:10}}>📅</div><div style={{fontSize:14}}>Adaugă clienți pentru a vedea calendarul</div></div>:<GlobalCalendar clients={clients}/>}</>
-        )}
+        {view==="calendar"&&(<><div style={S.sTitle}>📅 Calendar general</div>{clients.length===0?<div style={{textAlign:"center",padding:"48px 20px",color:MUTED}}><div style={{fontSize:42,marginBottom:10}}>📅</div><div style={{fontSize:14}}>Adaugă clienți pentru a vedea calendarul</div></div>:<GlobalCalendar clients={clients}/>}</>)}
 
-        {/* TODAY TAB */}
-        {tab==="today"&&(
+        {view==="today"&&(
           <>
             <div style={S.sTitle}>{new Date().toLocaleDateString("ro-RO",{weekday:"long",day:"numeric",month:"long"})}</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
@@ -603,27 +628,17 @@ function TrainerApp({ user }) {
               <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:14,textAlign:"center"}}><div style={{fontSize:22,fontWeight:900,color:"#A29BFE"}}>{todayPayTotal} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Plăți azi</div></div>
             </div>
             <div style={S.sTitle}>Ședințe ({todaySess.length})</div>
-            {todaySess.length===0?<div style={{color:MUTED,fontSize:14,marginBottom:12}}>Nicio ședință azi</div>:todaySess.map(s=>(
-              <div key={s.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}><div style={S.sb}><div style={S.row}><span>🏋️</span><div><div style={{fontWeight:600}}>{s.clientName}</div>{s.time&&<div style={{fontSize:11,color:MUTED}}>{s.time}</div>}</div></div><span style={S.badge(ACCENT,`${ACCENT}20`)}>{s.sessionPrice} RON</span></div></div>
-            ))}
+            {todaySess.length===0?<div style={{color:MUTED,fontSize:14,marginBottom:12}}>Nicio ședință azi</div>:todaySess.map(s=>(<div key={s.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}><div style={S.sb}><div style={S.row}><span>🏋️</span><div><div style={{fontWeight:600}}>{s.clientName}</div>{s.time&&<div style={{fontSize:11,color:MUTED}}>{s.time}</div>}</div></div><span style={S.badge(ACCENT,`${ACCENT}20`)}>{s.sessionPrice} RON</span></div></div>))}
             <div style={S.sTitle}>Plăți ({todayPays.length})</div>
-            {todayPays.length===0?<div style={{color:MUTED,fontSize:14,marginBottom:12}}>Nicio plată azi</div>:todayPays.map(p=>(
-              <div key={p.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}><div style={S.sb}><div style={S.row}><span>💳</span><span style={{fontWeight:600}}>{p.clientName}</span></div><span style={S.badge("#A29BFE","#A29BFE20")}>{p.amount} RON</span></div></div>
-            ))}
+            {todayPays.length===0?<div style={{color:MUTED,fontSize:14,marginBottom:12}}>Nicio plată azi</div>:todayPays.map(p=>(<div key={p.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}><div style={S.sb}><div style={S.row}><span>💳</span><span style={{fontWeight:600}}>{p.clientName}</span></div><span style={S.badge("#A29BFE","#A29BFE20")}>{p.amount} RON</span></div></div>))}
             <div style={S.divider}/>
             <div style={S.sTitle}>Marchează rapid</div>
-            {clients.filter(c=>c.sessionsLeft>0).map(c=>(
-              <div key={c.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}>
-                <div style={S.sb}><div style={S.row}><div style={{...S.avatar(c.gender),width:32,height:32,fontSize:15}}>{genderEmoji(c.gender)}</div><div><div style={{fontWeight:600}}>{c.name}</div><div style={{fontSize:12,color:MUTED}}>{c.sessionsLeft} rămase</div></div></div><button style={S.btn("success")} onClick={()=>openMarkSession(c.id)}>✅ Done</button>
-                </div>
-              </div>
-            ))}
+            {clients.filter(c=>c.sessionsLeft>0).map(c=>(<div key={c.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}><div style={S.sb}><div style={S.row}><div style={{...S.avatar(c.gender),width:32,height:32,fontSize:15}}>{genderEmoji(c.gender)}</div><div><div style={{fontWeight:600}}>{c.name}</div><div style={{fontSize:12,color:MUTED}}>{c.sessionsLeft} rămase</div></div></div><button style={S.btn("success")} onClick={()=>openMarkSession(c.id)}>✅ Done</button></div></div>))}
             {clients.filter(c=>c.sessionsLeft>0).length===0&&<div style={{color:MUTED,fontSize:14}}>Niciun client cu ședințe disponibile</div>}
           </>
         )}
 
-        {/* SUMMARY TAB */}
-        {tab==="summary"&&(
+        {view==="summary"&&(
           <>
             <div style={S.sTitle}>Prezentare financiară</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
@@ -631,26 +646,15 @@ function TrainerApp({ user }) {
               <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:14,textAlign:"center"}}><div style={{fontSize:20,fontWeight:900,color:"#A29BFE"}}>{monthIncome} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Luna aceasta</div></div>
             </div>
             <div style={S.sTitle}>Toți clienții</div>
-            {clients.map(c=>{
-              const days=daysUntil(c.nextDue),overdue=days!==null&&days<0;
-              const totalEarned=(c.history||[]).filter(h=>h.type==="payment").reduce((s,h)=>s+Number(h.amount||0),0);
-              return (
-                <div key={c.id} style={S.card}>
-                  <div style={S.sb}><div style={S.row}><div style={{...S.avatar(c.gender),width:32,height:32,fontSize:15}}>{genderEmoji(c.gender)}</div><div style={{fontWeight:700}}>{c.name}</div></div>{c.nextDue&&<span style={S.badge(overdue?ACCENT2:ACCENT,overdue?`${ACCENT2}20`:`${ACCENT}20`)}>{overdue?`${Math.abs(days)}z întârziere`:`${days}z`}</span>}</div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10}}>
-                    {[[c.sessionsLeft??0,"ȘEDINȚE",ACCENT],[c.fee?`${c.fee} RON`:"—","ABONAMENT","#FFB74D"],[`${totalEarned} RON`,"TOTAL","#A29BFE"]].map(([v,l,col])=>(
-                      <div key={l} style={{background:CARD2,borderRadius:8,padding:"8px 5px",textAlign:"center"}}><div style={{fontSize:13,fontWeight:800,color:col}}>{v}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>{l}</div></div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+            {clients.map(c=>{const days=daysUntil(c.nextDue),overdue=days!==null&&days<0;const totalEarned=(c.history||[]).filter(h=>h.type==="payment").reduce((s,h)=>s+Number(h.amount||0),0);return(<div key={c.id} style={S.card}><div style={S.sb}><div style={S.row}><div style={{...S.avatar(c.gender),width:32,height:32,fontSize:15}}>{genderEmoji(c.gender)}</div><div style={{fontWeight:700}}>{c.name}</div></div>{c.nextDue&&<span style={S.badge(overdue?ACCENT2:ACCENT,overdue?`${ACCENT2}20`:`${ACCENT}20`)}>{overdue?`${Math.abs(days)}z întârziere`:`${days}z`}</span>}</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10}}>{[[c.sessionsLeft??0,"ȘEDINȚE",ACCENT],[c.fee?`${c.fee} RON`:"—","ABONAMENT","#FFB74D"],[`${totalEarned} RON`,"TOTAL","#A29BFE"]].map(([v,l,col])=>(<div key={l} style={{background:CARD2,borderRadius:8,padding:"8px 5px",textAlign:"center"}}><div style={{fontSize:13,fontWeight:800,color:col}}>{v}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>{l}</div></div>))}</div></div>);})}
             {clients.length===0&&<div style={{color:MUTED,fontSize:14,textAlign:"center",padding:24}}>Adaugă clienți pentru a vedea sumarul</div>}
           </>
         )}
+
+        {view==="profile"&&<ProfileView user={user} profile={profile} setProfile={setProfile}/>}
       </div>
 
-      {/* MODALS */}
+      {/* MODALS - all centered */}
       {modal?.type&&(modal.type==="addClient"||modal.type==="editClient")&&editForm&&(
         <div style={S.modal} onClick={()=>setModal(null)}>
           <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
@@ -670,17 +674,14 @@ function TrainerApp({ user }) {
             </div>
             <label style={S.label}>Ciclu plată (zile)</label>
             <input style={{...S.input,marginBottom:18}} placeholder="ex. 30" type="number" value={editForm.dueDays} onChange={e=>setEditForm(p=>({...p,dueDays:Number(e.target.value)}))}/>
-            <div style={{display:"flex",gap:8}}>
-              <button style={{...S.btn(),flex:1}} onClick={()=>setModal(null)}>Anulează</button>
-              <button style={{...S.btn("primary"),flex:2}} onClick={saveClient}>{modal.type==="addClient"?"Adaugă client":"Salvează"}</button>
-            </div>
+            <div style={{display:"flex",gap:8}}><button style={{...S.btn(),flex:1}} onClick={()=>setModal(null)}>Anulează</button><button style={{...S.btn("primary"),flex:2}} onClick={saveClient}>{modal.type==="addClient"?"Adaugă client":"Salvează"}</button></div>
           </div>
         </div>
       )}
 
       {modal?.type==="markSession"&&(()=>{
         const c=clients.find(x=>x.id===modal.clientId);
-        return (
+        return(
           <div style={S.modal} onClick={()=>setModal(null)}>
             <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}><div style={{width:38,height:38,borderRadius:10,background:`${ACCENT}20`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>🏋️</div><div><div style={{fontSize:18,fontWeight:800}}>Înregistrează ședință</div><div style={{fontSize:13,color:MUTED}}>{c?.name} · {c?.sessionsLeft} rămase</div></div></div>
@@ -695,7 +696,7 @@ function TrainerApp({ user }) {
                 <div style={{fontSize:13,color:MUTED,marginTop:2}}>{sessDate?formatDate(sessDate):"—"}{sessTime?` la ${sessTime}`:""}</div>
                 {c?.sessionPrice>0&&<div style={{fontSize:13,color:ACCENT,marginTop:4,fontWeight:700}}>Valoare: {c.sessionPrice} RON</div>}
               </div>
-              <div style={{display:"flex",gap:8}}><button style={{...S.btn(),flex:1}} onClick={()=>setModal(null)}>Anulează</button><button style={{...S.btn("primary"),flex:2}} onClick={confirmSession} disabled={!sessDate}>✅ Confirmă ședința</button></div>
+              <div style={{display:"flex",gap:8}}><button style={{...S.btn(),flex:1}} onClick={()=>setModal(null)}>Anulează</button><button style={{...S.btn("primary"),flex:2}} onClick={confirmSession} disabled={!sessDate}>✅ Confirmă</button></div>
             </div>
           </div>
         );
@@ -704,7 +705,7 @@ function TrainerApp({ user }) {
       {modal?.type==="markPaid"&&(()=>{
         const c=clients.find(x=>x.id===modal.clientId);
         const preview=payDate&&payDueDays?addDays(payDate,payDueDays):null;
-        return (
+        return(
           <div style={S.modal} onClick={()=>setModal(null)}>
             <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
               <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}><div style={{width:38,height:38,borderRadius:10,background:"#A29BFE20",display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>💳</div><div><div style={{fontSize:18,fontWeight:800}}>Înregistrează plată</div><div style={{fontSize:13,color:MUTED}}>{c?.name}</div></div></div>
@@ -718,7 +719,7 @@ function TrainerApp({ user }) {
               <label style={S.label}>⏳ Scadență (zile)</label>
               <input style={{...S.input,marginBottom:12}} type="number" placeholder="ex. 30" value={payDueDays} onChange={e=>setPayDueDays(Number(e.target.value))}/>
               {preview&&<div style={{background:CARD2,borderRadius:10,padding:"12px 14px",marginBottom:18,border:`1px solid ${BORDER}`}}><div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><div><div style={{fontSize:13,color:MUTED}}>Data plății</div><div style={{fontSize:14,fontWeight:700}}>{formatDate(payDate)}</div></div><div style={{textAlign:"right"}}><div style={{fontSize:13,color:MUTED}}>Scadența</div><div style={{fontSize:14,fontWeight:700,color:ACCENT}}>{formatDate(preview)}</div></div></div></div>}
-              <div style={{display:"flex",gap:8}}><button style={{...S.btn(),flex:1}} onClick={()=>setModal(null)}>Anulează</button><button style={{...S.btn("primary"),flex:2}} onClick={confirmPayment}>✅ Confirmă plata</button></div>
+              <div style={{display:"flex",gap:8}}><button style={{...S.btn(),flex:1}} onClick={()=>setModal(null)}>Anulează</button><button style={{...S.btn("primary"),flex:2}} onClick={confirmPayment}>✅ Confirmă</button></div>
             </div>
           </div>
         );
@@ -726,10 +727,10 @@ function TrainerApp({ user }) {
 
       {deleteClientConfirm&&(()=>{
         const c=clients.find(x=>x.id===deleteClientConfirm);
-        return (
+        return(
           <div style={S.modal} onClick={()=>setDeleteClientConfirm(null)}>
-            <div style={{...S.modalBox,padding:"28px 20px 36px"}} onClick={e=>e.stopPropagation()}>
-              <div style={{textAlign:"center",marginBottom:20}}><div style={{fontSize:42,marginBottom:12}}>⚠️</div><div style={{fontSize:18,fontWeight:800,marginBottom:8}}>Ștergi clientul?</div><div style={{fontSize:14,color:MUTED,lineHeight:1.5}}>Ești sigur că vrei să ștergi<br/><strong style={{color:TEXT}}>{c?.name}</strong>?<br/>Toate datele și istoricul vor fi pierdute definitiv.</div></div>
+            <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
+              <div style={{textAlign:"center",marginBottom:20}}><div style={{fontSize:42,marginBottom:12}}>⚠️</div><div style={{fontSize:18,fontWeight:800,marginBottom:8}}>Ștergi clientul?</div><div style={{fontSize:14,color:MUTED,lineHeight:1.5}}>Ești sigur că vrei să ștergi <strong style={{color:TEXT}}>{c?.name}</strong>?<br/>Toate datele vor fi pierdute definitiv.</div></div>
               <div style={{display:"flex",gap:8}}><button style={{...S.btn(),flex:1}} onClick={()=>setDeleteClientConfirm(null)}>Anulează</button><button style={{...S.btn("danger"),flex:1,justifyContent:"center",background:ACCENT2,color:"#fff"}} onClick={()=>{deleteClient(deleteClientConfirm);setDeleteClientConfirm(null);}}>🗑 Da, șterge</button></div>
             </div>
           </div>
@@ -738,8 +739,8 @@ function TrainerApp({ user }) {
 
       {deleteConfirm&&(
         <div style={S.modal} onClick={()=>setDeleteConfirm(null)}>
-          <div style={{...S.modalBox,padding:"24px 20px 32px"}} onClick={e=>e.stopPropagation()}>
-            <div style={{textAlign:"center",marginBottom:16}}><div style={{fontSize:36,marginBottom:10}}>🗑️</div><div style={{fontSize:17,fontWeight:800,marginBottom:6}}>Ștergi această înregistrare?</div><div style={{fontSize:13,color:MUTED}}>Dacă este o ședință, ședința va fi restituită clientului.</div></div>
+          <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
+            <div style={{textAlign:"center",marginBottom:16}}><div style={{fontSize:36,marginBottom:10}}>🗑️</div><div style={{fontSize:17,fontWeight:800,marginBottom:6}}>Ștergi această înregistrare?</div><div style={{fontSize:13,color:MUTED}}>Dacă este o ședință, aceasta va fi restituită.</div></div>
             <div style={{display:"flex",gap:8}}><button style={{...S.btn(),flex:1}} onClick={()=>setDeleteConfirm(null)}>Anulează</button><button style={{...S.btn("danger"),flex:1,justifyContent:"center"}} onClick={()=>deleteEntry(deleteConfirm.clientId,deleteConfirm.entryId)}>✕ Șterge</button></div>
           </div>
         </div>
@@ -749,17 +750,18 @@ function TrainerApp({ user }) {
 }
 
 // ─── CLIENT APP ───────────────────────────────────────────────────────────────
-function ClientApp({ user, clientCard }) {
-  const S=useS();
-  const [tab,setTab]=useState("dashboard");
+function ClientApp({user,profile,setProfile,clientCard}){
+  const[view,setView]=useState("dashboard");
+  const[drawerOpen,setDrawerOpen]=useState(false);
+  const navItems=[["dashboard","🏠","Acasă"],["calendar","📅","Calendar"],["measures","📏","Măsurători"],["photos","📸","Poze"],["profile","👤","Profil"]];
 
-  if (!clientCard) {
-    return (
+  if(!clientCard){
+    return(
       <div style={{...S.app,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,textAlign:"center"}}>
         <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
         <div style={{fontSize:48,marginBottom:16}}>🔗</div>
         <div style={{fontSize:18,fontWeight:800,marginBottom:8}}>Cont nelegat</div>
-        <div style={{fontSize:14,color:MUTED,lineHeight:1.6,marginBottom:24}}>Contul tău nu este încă legat de un antrenor. Contactează antrenorul tău și asigură-te că a adăugat adresa ta de email (<strong style={{color:TEXT}}>{user.email}</strong>) în profilul tău de client.</div>
+        <div style={{fontSize:14,color:MUTED,lineHeight:1.6,marginBottom:24}}>Contul tău nu este încă legat de un antrenor. Contactează antrenorul și asigură-te că a adăugat emailul tău (<strong style={{color:TEXT}}>{user.email}</strong>) în profilul tău de client.</div>
         <button style={S.btn("ghost")} onClick={()=>supabase.auth.signOut()}>⏻ Deconectare</button>
       </div>
     );
@@ -768,66 +770,47 @@ function ClientApp({ user, clientCard }) {
   const sessionDates=(clientCard.history||[]).filter(h=>h.type==="session").map(h=>h.date);
   const paymentDates=(clientCard.history||[]).filter(h=>h.type==="payment").map(h=>h.date);
   const lastSession=[...(clientCard.history||[])].filter(h=>h.type==="session").sort((a,b)=>b.date.localeCompare(a.date))[0];
-  const days=daysUntil(clientCard.nextDue);
-  const overdue=days!==null&&days<0;
+  const days=daysUntil(clientCard.nextDue),overdue=days!==null&&days<0;
+  const viewTitle=navItems.find(([v])=>v===view)?.[2]||"";
 
-  return (
+  return(
     <div style={S.app}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-      {/* HEADER */}
+      <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} items={navItems} onSelect={(v)=>{setView(v);}} activeView={view} user={user} profile={profile}/>
       <div style={S.header}>
         <div style={S.sb}>
           <div style={S.row}>
-            <div style={{width:34,height:34,borderRadius:9,background:`linear-gradient(135deg,${ACCENT},#00B87A)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:17}}>💪</div>
-            <div><div style={{fontSize:17,fontWeight:800,letterSpacing:"-0.3px"}}>{clientCard.name}</div><div style={{fontSize:10,color:MUTED,letterSpacing:"0.5px",textTransform:"uppercase"}}>Cont Client</div></div>
+            <button onClick={()=>setDrawerOpen(true)} style={{background:"none",border:"none",cursor:"pointer",color:TEXT,fontSize:22,padding:"2px 6px 2px 0",lineHeight:1}}>☰</button>
+            <div style={{fontSize:16,fontWeight:800}}>{viewTitle}</div>
           </div>
-          <button onClick={()=>supabase.auth.signOut()} style={{background:"transparent",border:`1px solid ${BORDER}`,borderRadius:9,padding:"6px 10px",color:MUTED,cursor:"pointer",fontSize:13,fontWeight:700}}>⏻</button>
-        </div>
-        <div style={S.navTabs}>
-          {[["dashboard","🏠","Acasă"],["calendar","📅","Calendar"],["measures","📏","Măsurători"],["photos","📸","Poze"]].map(([t,icon,label])=>(
-            <button key={t} style={S.tab(tab===t)} onClick={()=>setTab(t)}>{icon} {label}</button>
-          ))}
         </div>
       </div>
 
       <div style={S.main}>
-        {/* DASHBOARD */}
-        {tab==="dashboard"&&(
+        {view==="dashboard"&&(
           <>
             <div style={S.sTitle}>Rezumatul tău</div>
-            {/* Sessions left - big */}
             <div style={{background:`linear-gradient(135deg,${ACCENT}20,${ACCENT}08)`,border:`1px solid ${ACCENT}40`,borderRadius:20,padding:"24px 20px",marginBottom:12,textAlign:"center"}}>
               <div style={{fontSize:64,fontWeight:900,color:ACCENT,lineHeight:1}}>{clientCard.sessionsLeft??0}</div>
               <div style={{fontSize:13,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginTop:6}}>Ședințe rămase</div>
-              {clientCard.sessionsLeft>0&&clientCard.totalSessions>0&&(
-                <div style={{height:6,borderRadius:3,background:BORDER,marginTop:14,overflow:"hidden"}}>
-                  <div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(clientCard.sessionsLeft/clientCard.totalSessions)*100)}%`,background:ACCENT}}/>
-                </div>
-              )}
+              {clientCard.sessionsLeft>0&&clientCard.totalSessions>0&&<div style={{height:6,borderRadius:3,background:BORDER,marginTop:14,overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(clientCard.sessionsLeft/clientCard.totalSessions)*100)}%`,background:ACCENT}}/></div>}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-              {/* Next payment */}
               <div style={{background:CARD,borderRadius:14,padding:14,border:`1px solid ${overdue?"#FF6B6B50":BORDER}`}}>
                 <div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:6}}>Următoarea plată</div>
                 {clientCard.nextDue?<><div style={{fontSize:14,fontWeight:800,color:overdue?ACCENT2:TEXT}}>{formatDate(clientCard.nextDue)}</div><div style={{fontSize:11,color:overdue?ACCENT2:MUTED,marginTop:4,fontWeight:600}}>{overdue?`${Math.abs(days)}z întârziere`:days===0?"Scade azi":`${days} zile`}</div></>:<div style={{fontSize:13,color:MUTED}}>—</div>}
               </div>
-              {/* Last session */}
               <div style={{background:CARD,borderRadius:14,padding:14,border:`1px solid ${BORDER}`}}>
                 <div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:6}}>Ultima ședință</div>
                 {lastSession?<><div style={{fontSize:14,fontWeight:800}}>{formatDate(lastSession.date)}</div><div style={{fontSize:11,color:MUTED,marginTop:4}}>{lastSession.time||""}</div></>:<div style={{fontSize:13,color:MUTED}}>—</div>}
               </div>
             </div>
-
-            {/* Session + payment history */}
             <div style={S.sTitle}>Istoric activitate</div>
             <div style={{background:CARD,borderRadius:16,border:`1px solid ${BORDER}`,overflow:"hidden"}}>
               {(clientCard.history||[]).length===0?<div style={{padding:16,color:MUTED,fontSize:14}}>Nicio activitate încă</div>
                 :[...(clientCard.history||[])].reverse().slice(0,10).map((h,i,arr)=>(
                   <div key={h.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:i<arr.length-1?`1px solid ${BORDER}`:"none"}}>
-                    <div style={S.row}>
-                      <span style={{fontSize:17}}>{h.type==="payment"?"💳":"🏋️"}</span>
-                      <div><div style={{fontSize:13,fontWeight:600}}>{h.note}</div><div style={{fontSize:11,color:MUTED}}>{formatDateTime(h.date,h.time)}</div></div>
-                    </div>
+                    <div style={S.row}><span style={{fontSize:17}}>{h.type==="payment"?"💳":"🏋️"}</span><div><div style={{fontSize:13,fontWeight:600}}>{h.note}</div><div style={{fontSize:11,color:MUTED}}>{formatDateTime(h.date,h.time)}</div></div></div>
                     {h.type==="payment"&&<span style={S.badge(ACCENT,`${ACCENT}20`)}>+{h.amount} RON</span>}
                     {h.type==="session"&&h.sessionPrice>0&&<span style={S.badge("#A29BFE","#A29BFE20")}>{h.sessionPrice} RON</span>}
                   </div>
@@ -835,74 +818,62 @@ function ClientApp({ user, clientCard }) {
             </div>
           </>
         )}
-
-        {/* CALENDAR */}
-        {tab==="calendar"&&(
-          <><div style={S.sTitle}>📅 Prezențele tale</div><MiniCalendar sessionDates={sessionDates} paymentDates={paymentDates}/></>
-        )}
-
-        {/* MEASUREMENTS */}
-        {tab==="measures"&&<MeasurementsSection clientId={clientCard.id} trainerId={null} readOnly={false}/>}
-
-        {/* PHOTOS */}
-        {tab==="photos"&&<ProgressPhotosSection clientId={clientCard.id} trainerId={null} readOnly={false}/>}
+        {view==="calendar"&&(<><div style={S.sTitle}>📅 Prezențele tale</div><MiniCalendar sessionDates={sessionDates} paymentDates={paymentDates}/></>)}
+        {view==="measures"&&<MeasurementsSection clientId={clientCard.id}/>}
+        {view==="photos"&&<ProgressPhotosSection clientId={clientCard.id}/>}
+        {view==="profile"&&<ProfileView user={user} profile={profile} setProfile={setProfile}/>}
       </div>
     </div>
   );
 }
 
 // ─── AUTH SCREEN ──────────────────────────────────────────────────────────────
-function AuthScreen({ onAuth }) {
-  const [mode,setMode]=useState("login");
-  const [role,setRole]=useState("client");
-  const [email,setEmail]=useState("");
-  const [password,setPassword]=useState("");
-  const [name,setName]=useState("");
-  const [trainerSecret,setTrainerSecret]=useState("");
-  const [trainerJoinCode,setTrainerJoinCode]=useState("");
-  const [loading,setLoading]=useState(false);
-  const [error,setError]=useState("");
-  const [success,setSuccess]=useState("");
+function AuthScreen({onAuth}){
+  const[mode,setMode]=useState("login");
+  const[role,setRole]=useState("client");
+  const[email,setEmail]=useState("");
+  const[password,setPassword]=useState("");
+  const[name,setName]=useState("");
+  const[trainerJoinCode,setTrainerJoinCode]=useState("");
+  const[loading,setLoading]=useState(false);
+  const[error,setError]=useState("");
+  const[success,setSuccess]=useState("");
 
-  async function handleSubmit() {
-    setError(""); setSuccess(""); setLoading(true);
-    try {
-      if (mode==="login") {
-        const {error}=await supabase.auth.signInWithPassword({email,password});
-        if(error) throw error;
+  async function handleSubmit(){
+    setError("");setSuccess("");setLoading(true);
+    try{
+      if(mode==="login"){
+        const{error}=await supabase.auth.signInWithPassword({email,password});
+        if(error)throw error;
         onAuth();
       } else {
-        // Validate trainer secret
-        if (role==="trainer"&&trainerSecret!==TRAINER_SECRET) throw new Error("Cod de antrenor incorect.");
-        // Validate trainer join code for clients
-        if (role==="client"&&!trainerJoinCode.trim()) throw new Error("Introduceți codul antrenorului.");
-        if (!name.trim()) throw new Error("Introduceți numele.");
-
-        const {data,error}=await supabase.auth.signUp({email,password,options:{data:{name,role}}});
-        if(error) throw error;
-
-        // Create profile
-        const joinCode = role==="trainer" ? genCode() : null;
-        let trainerId = null;
-        if (role==="client") {
-          const {data:trainerProfile}=await supabase.from("profiles").select("id").eq("join_code",trainerJoinCode.trim().toUpperCase()).single();
-          if(!trainerProfile) throw new Error("Codul antrenorului nu a fost găsit.");
+        if(!name.trim())throw new Error("Introduceți numele.");
+        // Validate BEFORE creating account
+        // Trainer role is verified server-side via DB trigger — no frontend secret needed
+        let trainerId=null;
+        if(role==="client"){
+          if(!trainerJoinCode.trim())throw new Error("Introduceți codul antrenorului.");
+          const{data:trainerProfile,error:tErr}=await supabase.from("profiles").select("id").eq("join_code",trainerJoinCode.trim().toUpperCase()).maybeSingle();
+          if(tErr||!trainerProfile)throw new Error("Codul antrenorului nu a fost găsit. Verificați codul și încercați din nou.");
           trainerId=trainerProfile.id;
         }
+        // All validation passed — now create the account
+        const{data,error}=await supabase.auth.signUp({email,password,options:{data:{name,role}}});
+        if(error)throw error;
+        const joinCode=role==="trainer"?genCode():null;
         await supabase.from("profiles").insert({id:data.user.id,role,name,trainer_id:trainerId,join_code:joinCode});
-
-        // Auto-link client card by email
-        if (role==="client"&&trainerId) {
+        if(role==="client"&&trainerId){
           await supabase.from("clients").update({client_user_id:data.user.id}).eq("client_email",email).eq("user_id",trainerId);
         }
-
-        setSuccess(role==="trainer"?"Cont antrenor creat! Verifică emailul.":"Cont client creat! Verifică emailul.");
+        setSuccess(role==="trainer"?"Cont antrenor creat! Verifică emailul pentru confirmare.":"Cont client creat! Verifică emailul pentru confirmare.");
       }
-    } catch(e) { setError(e.message||"A apărut o eroare."); }
+    }catch(e){setError(e.message||"A apărut o eroare.");}
     setLoading(false);
   }
 
-  return (
+  const inputStyle={width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:12,fontFamily:"'DM Sans',sans-serif"};
+
+  return(
     <div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'DM Sans',sans-serif"}}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
       <div style={{width:"100%",maxWidth:400}}>
@@ -911,54 +882,38 @@ function AuthScreen({ onAuth }) {
           <div style={{fontSize:26,fontWeight:900,color:TEXT,letterSpacing:"-0.5px"}}>PT Tracker</div>
           <div style={{fontSize:13,color:MUTED,marginTop:4,textTransform:"uppercase",letterSpacing:"0.8px"}}>Personal Trainer Pro</div>
         </div>
-
         <div style={{background:CARD,borderRadius:20,padding:"28px 24px",border:`1px solid ${BORDER}`}}>
-          {/* Login / Register toggle */}
           <div style={{display:"flex",background:CARD2,borderRadius:10,padding:3,marginBottom:20}}>
             {[["login","Autentificare"],["register","Înregistrare"]].map(([m,label])=>(
               <button key={m} onClick={()=>{setMode(m);setError("");setSuccess("");}} style={{flex:1,padding:"8px 0",borderRadius:8,border:"none",cursor:"pointer",fontSize:13,fontWeight:700,transition:"all 0.2s",background:mode===m?ACCENT:"transparent",color:mode===m?"#000":MUTED,fontFamily:"'DM Sans',sans-serif"}}>{label}</button>
             ))}
           </div>
-
-          {/* Role selector - only on register */}
           {mode==="register"&&(
             <>
               <div style={{fontSize:12,fontWeight:700,color:MUTED,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>Tip de cont</div>
-              <div style={{display:"flex",gap:8,marginBottom:16}}>
+              <div style={{display:"flex",gap:8,marginBottom:14}}>
                 {[["client","🏃 Client"],["trainer","🏋️ Antrenor"]].map(([r,label])=>(
                   <button key={r} onClick={()=>setRole(r)} style={{flex:1,padding:"10px 0",borderRadius:10,border:`2px solid ${role===r?ACCENT:BORDER}`,background:role===r?`${ACCENT}15`:CARD2,color:role===r?ACCENT:MUTED,fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,cursor:"pointer",transition:"all 0.15s"}}>{label}</button>
                 ))}
               </div>
+              <label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Nume complet</label>
+              <input style={inputStyle} placeholder="Ion Popescu" value={name} onChange={e=>setName(e.target.value)}/>
             </>
           )}
-
-          {/* Name - register only */}
-          {mode==="register"&&(
-            <><label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Nume complet</label>
-            <input style={{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:12,fontFamily:"'DM Sans',sans-serif"}} placeholder="Ion Popescu" value={name} onChange={e=>setName(e.target.value)}/></>
-          )}
-
           <label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Email</label>
-          <input type="email" style={{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:12,fontFamily:"'DM Sans',sans-serif"}} placeholder="exemplu@email.com" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
-
+          <input type="email" style={inputStyle} placeholder="exemplu@email.com" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
           <label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Parolă</label>
-          <input type="password" style={{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:14,fontFamily:"'DM Sans',sans-serif"}} placeholder="Minim 6 caractere" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
-
-          {/* Trainer secret code */}
+          <input type="password" style={inputStyle} placeholder="Minim 6 caractere" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
           {mode==="register"&&role==="trainer"&&(
-            <><label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>🔐 Cod secret antrenor</label>
-            <input style={{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:14,fontFamily:"'DM Sans',sans-serif"}} placeholder="Codul primit de la admin" value={trainerSecret} onChange={e=>setTrainerSecret(e.target.value)}/></>
+            <div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:10,padding:"10px 14px",fontSize:13,color:ACCENT,marginBottom:12}}>
+              ℹ️ Contul de antrenor va fi aprobat automat de sistem.
+            </div>
           )}
-
-          {/* Trainer join code for clients */}
           {mode==="register"&&role==="client"&&(
-            <><label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>🔑 Codul antrenorului</label>
-            <input style={{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:14,fontFamily:"'DM Sans',sans-serif",textTransform:"uppercase",letterSpacing:"0.1em"}} placeholder="ex. AB12CD" value={trainerJoinCode} onChange={e=>setTrainerJoinCode(e.target.value)}/></>
+            <><label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>🔑 Codul antrenorului</label><input style={{...inputStyle,textTransform:"uppercase",letterSpacing:"0.1em"}} placeholder="ex. AB12CD" value={trainerJoinCode} onChange={e=>setTrainerJoinCode(e.target.value)}/></>
           )}
-
           {error&&<div style={{background:`${ACCENT2}15`,border:`1px solid ${ACCENT2}40`,borderRadius:10,padding:"10px 14px",fontSize:13,color:ACCENT2,marginBottom:14}}>⚠ {error}</div>}
           {success&&<div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:10,padding:"10px 14px",fontSize:13,color:ACCENT,marginBottom:14}}>✓ {success}</div>}
-
           <button onClick={handleSubmit} disabled={loading||!email||!password} style={{width:"100%",background:ACCENT,color:"#000",border:"none",borderRadius:12,padding:"14px",fontSize:15,fontWeight:800,cursor:loading?"not-allowed":"pointer",opacity:loading||!email||!password?0.6:1,fontFamily:"'DM Sans',sans-serif"}}>
             {loading?"Se procesează...":mode==="login"?"Intră în cont":role==="trainer"?"Creează cont antrenor":"Creează cont client"}
           </button>
@@ -969,37 +924,32 @@ function AuthScreen({ onAuth }) {
 }
 
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
-export default function Root() {
-  const [user,setUser]=useState(undefined);
-  const [profile,setProfile]=useState(null);
-  const [clientCard,setClientCard]=useState(null);
-  const [profileLoading,setProfileLoading]=useState(false);
+export default function Root(){
+  const[user,setUser]=useState(undefined);
+  const[profile,setProfile]=useState(null);
+  const[clientCard,setClientCard]=useState(null);
+  const[profileLoading,setProfileLoading]=useState(false);
 
   useEffect(()=>{
     supabase.auth.getUser().then(({data:{user}})=>setUser(user??null));
-    const {data:{subscription}}=supabase.auth.onAuthStateChange((_,session)=>{
+    const{data:{subscription}}=supabase.auth.onAuthStateChange((_,session)=>{
       setUser(session?.user??null);
-      if(!session) { setProfile(null); setClientCard(null); }
+      if(!session){setProfile(null);setClientCard(null);}
     });
-    return ()=>subscription.unsubscribe();
+    return()=>subscription.unsubscribe();
   },[]);
 
   useEffect(()=>{
-    if(!user) return;
+    if(!user)return;
     setProfileLoading(true);
     supabase.from("profiles").select("*").eq("id",user.id).single().then(async({data:prof})=>{
       setProfile(prof);
-      if(prof?.role==="client") {
-        // Find client card by user_id
-        const {data:card}=await supabase.from("clients").select("data").eq("client_user_id",user.id).single();
-        if(card) { setClientCard(card.data); }
-        else {
-          // Try auto-link by email
-          const {data:byEmail}=await supabase.from("clients").select("id,data").eq("client_email",user.email).single();
-          if(byEmail){
-            await supabase.from("clients").update({client_user_id:user.id}).eq("id",byEmail.id);
-            setClientCard(byEmail.data);
-          }
+      if(prof?.role==="client"){
+        const{data:card}=await supabase.from("clients").select("data").eq("client_user_id",user.id).single();
+        if(card){setClientCard(card.data);}
+        else{
+          const{data:byEmail}=await supabase.from("clients").select("id,data").eq("client_email",user.email).maybeSingle();
+          if(byEmail){await supabase.from("clients").update({client_user_id:user.id}).eq("id",byEmail.id);setClientCard(byEmail.data);}
         }
       }
       setProfileLoading(false);
@@ -1007,17 +957,10 @@ export default function Root() {
   },[user]);
 
   if(user===undefined||profileLoading){
-    return (
-      <div style={{minHeight:"100vh",background:BG,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans',sans-serif"}}>
-        <div style={{fontSize:40,marginBottom:16}}>💪</div>
-        <div style={{color:ACCENT,fontSize:14,fontWeight:700}}>Se încarcă...</div>
-      </div>
-    );
+    return(<div style={{minHeight:"100vh",background:BG,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans',sans-serif"}}><div style={{fontSize:40,marginBottom:16}}>💪</div><div style={{color:ACCENT,fontSize:14,fontWeight:700}}>Se încarcă...</div></div>);
   }
 
-  if(!user) return <AuthScreen onAuth={()=>supabase.auth.getUser().then(({data:{user}})=>setUser(user))}/>;
-
-  if(profile?.role==="client") return <ClientApp user={user} clientCard={clientCard}/>;
-
-  return <TrainerApp user={user}/>;
+  if(!user)return<AuthScreen onAuth={()=>supabase.auth.getUser().then(({data:{user}})=>setUser(user))}/>;
+  if(profile?.role==="client")return<ClientApp user={user} profile={profile} setProfile={setProfile} clientCard={clientCard}/>;
+  return<TrainerApp user={user} profile={profile} setProfile={setProfile}/>;
 }
