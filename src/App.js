@@ -635,7 +635,7 @@ function TrainerBookingView({user}){
 }
 
 // Client: view and book slots
-function ClientBookingView({user,profile,clientCard}){
+function ClientBookingView({user,profile}){
   const[slots,setSlots]=useState([]);
   const[myBookings,setMyBookings]=useState([]);
   const[loading,setLoading]=useState(true);
@@ -1043,7 +1043,7 @@ function TrainerApp({user,profile,setProfile}){
         )}
 
         {view==="booking"&&<TrainerBookingView user={user}/>}
-        {view==="booking"&&<ClientBookingView user={user} profile={profile} clientCard={clientCard}/>}
+        {view==="booking"&&<ClientBookingView user={user} profile={profile}/>}
         {view==="profile"&&<ProfileView user={user} profile={profile} setProfile={setProfile}/>}
       </div>
 
