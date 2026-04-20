@@ -941,6 +941,7 @@ function ClientApp({user,profile,setProfile,clientCard,refreshClientCard}){
   const navItems=[["welcome","🏠","Acasă"],["calendar","📅","Calendar"],["measures","📏","Măsurători"],["photos","📸","Poze"],["profile","👤","Profil"]];
 
   // Refresh client card on mount to always show latest data
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(()=>{ if(refreshClientCard) refreshClientCard(); },[]);
 
   if(!clientCard&&profile?.role==="client"){
