@@ -25,7 +25,6 @@ function nowTime(){const d=new Date();return`${String(d.getHours()).padStart(2,"
 function getDaysInMonth(y,m){return new Date(y,m+1,0).getDate();}
 function getFirstDayOfMonth(y,m){const d=new Date(y,m,1).getDay();return d===0?6:d-1;}
 function genderEmoji(g){return g==="Female"?"👩":g==="Male"?"👨":"🧑";}
-function genCode(){return crypto.randomUUID().replace(/-/g,"").substring(0,8).toUpperCase();}
 
 // Generate a short-lived signed URL for a private photo path
 async function getSignedUrl(path) {
