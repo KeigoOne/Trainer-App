@@ -1118,8 +1118,7 @@ export default function Root(){
       setProfile(prof);
       if(prof?.role==="client"){
         // Use RPC to bypass RLS — function verifies identity server-side
-        const{data:rpcData,error:rpcErr}=await supabase.rpc("get_client_card");
-        console.log("GET_CLIENT_CARD result:",rpcData,"error:",rpcErr);
+        const{data:rpcData}=await supabase.rpc("get_client_card");
         if(rpcData?.found){setClientCard(rpcData.data);}
       }
       setProfileLoading(false);
