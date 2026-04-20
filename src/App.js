@@ -98,7 +98,7 @@ function Drawer({open,onClose,items,onSelect,activeView,user,profile}){
         <div style={{padding:"24px 20px 16px",borderBottom:`1px solid ${BORDER}`}}>
           <div style={{display:"flex",alignItems:"center",gap:10}}>
             <div style={{width:36,height:36,borderRadius:10,background:`linear-gradient(135deg,${ACCENT},#00B87A)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>💪</div>
-            <div><div style={{fontSize:16,fontWeight:800,color:TEXT}}>PT Tracker</div><div style={{fontSize:10,color:MUTED,textTransform:"uppercase",letterSpacing:"0.5px"}}>{profile?.role==="trainer"?"Antrenor":"Client"}</div></div>
+            <div><div style={{fontSize:16,fontWeight:800,color:TEXT}}>PT Tracker</div><div style={{fontSize:10,color:MUTED,textTransform:"uppercase",letterSpacing:"0.5px"}}>{profile?.role==="trainer"?"Antrenor":profile?.role==="admin"?"Admin":"Client"}</div></div>
           </div>
           {user&&<div style={{fontSize:12,color:MUTED,marginTop:10,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user.email}</div>}
         </div>
@@ -406,11 +406,11 @@ function ProfileView({user,profile,setProfile}){
       {/* Account type badge */}
       <div style={{...S.card,marginBottom:12}}>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:52,height:52,borderRadius:14,background:`linear-gradient(135deg,${ACCENT},#00B87A)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>{profile?.role==="trainer"?"🏋️":"🏃"}</div>
+          <div style={{width:52,height:52,borderRadius:14,background:`linear-gradient(135deg,${ACCENT},#00B87A)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26}}>{profile?.role==="trainer"?"🏋️":profile?.role==="admin"?"👑":"🏃"}</div>
           <div>
             <div style={{fontSize:17,fontWeight:800}}>{profile?.name||user?.email}</div>
             <div style={{fontSize:12,color:MUTED,marginTop:2}}>{user?.email}</div>
-            <span style={{...S.badge(profile?.role==="trainer"?ACCENT:"#A29BFE",profile?.role==="trainer"?`${ACCENT}20`:"#A29BFE20"),marginTop:6,display:"inline-flex"}}>{profile?.role==="trainer"?"🏋️ Antrenor":"🏃 Client"}</span>
+            <span style={{...S.badge(profile?.role==="trainer"?ACCENT:profile?.role==="admin"?"#FFB74D":"#A29BFE",profile?.role==="trainer"?`${ACCENT}20`:profile?.role==="admin"?"#FFB74D20":"#A29BFE20"),marginTop:6,display:"inline-flex"}}>{profile?.role==="trainer"?"🏋️ Antrenor":profile?.role==="admin"?"👑 Admin":"🏃 Client"}</span>
           </div>
         </div>
       </div>
@@ -428,7 +428,7 @@ function ProfileView({user,profile,setProfile}){
       </div>
 
       {/* Trainer join code section */}
-      {profile?.role==="trainer"&&(
+      {(profile?.role==="trainer"||profile?.role==="admin")&&(
         <div style={S.card}>
           <div style={{fontSize:14,fontWeight:700,marginBottom:6}}>Codul tău de antrenor</div>
           <div style={{fontSize:12,color:MUTED,marginBottom:14}}>Oferă acest cod clienților tăi la înregistrare. Poți schimba codul oricând — clienții existenți rămân conectați.</div>
@@ -962,5 +962,7 @@ export default function Root(){
 
   if(!user)return<AuthScreen onAuth={()=>supabase.auth.getUser().then(({data:{user}})=>setUser(user))}/>;
   if(profile?.role==="client")return<ClientApp user={user} profile={profile} setProfile={setProfile} clientCard={clientCard}/>;
-  return<TrainerApp user={user} profile={profile} setProfile={setProfile}/>;
+  if(profile?.role==="trainer"||profile?.role==="admin")return<TrainerApp user={user} profile={profile} setProfile={setProfile}/>;
+  // No profile yet - show loading
+  return<ClientApp user={user} profile={profile} setProfile={setProfile} clientCard={clientCard}/>;
 }
