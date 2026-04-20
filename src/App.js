@@ -16,11 +16,17 @@ const CLIENT_COLORS = ["#00E5A0","#FF6B6B","#A29BFE","#FFB74D","#4ECDC4","#FF8CC
 const GENDERS = ["Male","Female","Other"];
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
+// Sanitize user input — strip HTML tags and trim whitespace
+function sanitize(str){ if(!str)return""; return String(str).replace(/<[^>]*>/g,"").trim().substring(0,500); }
+// Validate email format
+function isValidEmail(e){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
+// Validate password strength
+function isStrongPassword(p){ return p&&p.length>=8&&/[A-Z]/.test(p)&&/[0-9]/.test(p); }
 function daysUntil(d){if(!d)return null;const n=new Date();n.setHours(0,0,0,0);const t=new Date(d);t.setHours(0,0,0,0);return Math.ceil((t-n)/86400000);}
 function formatDate(d){if(!d)return"—";return new Date(d).toLocaleDateString("ro-RO",{day:"2-digit",month:"short",year:"numeric"});}
 function formatDateTime(d,t){return d?(t?`${formatDate(d)}, ${t}`:formatDate(d)):"—";}
 function addDays(s,n){const d=new Date(s);d.setDate(d.getDate()+n);return d.toISOString().split("T")[0];}
-function today(){return new Date().toISOString().split("T")[0];}
+function today(){const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
 function nowTime(){const d=new Date();return`${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;}
 function getDaysInMonth(y,m){return new Date(y,m+1,0).getDate();}
 function getFirstDayOfMonth(y,m){const d=new Date(y,m,1).getDay();return d===0?6:d-1;}
@@ -35,7 +41,14 @@ async function getSignedUrl(path) {
 }
 
 // ─── SUPABASE SYNC ────────────────────────────────────────────────────────────
-async function syncToSupabase(prev,next,userId){
+// Debounce helper — prevents hammering DB on rapid state changes
+function debounce(fn, delay){
+  let timer;
+  return function(...args){ clearTimeout(timer); timer=setTimeout(()=>fn(...args), delay); };
+}
+const debouncedSync = debounce(async function(prev,next,userId){ await syncToSupabaseRaw(prev,next,userId); }, 800);
+
+async function syncToSupabaseRaw(prev,next,userId){
   const pm=Object.fromEntries(prev.map(c=>[c.id,c]));
   const nm=Object.fromEntries(next.map(c=>[c.id,c]));
   for(const id of Object.keys(pm)){if(!nm[id])await supabase.from("clients").delete().eq("id",id).eq("user_id",userId);}
@@ -57,7 +70,7 @@ function useStorage(user){
   const setClients=useCallback((updater)=>{
     setClientsState((prev)=>{
       const next=typeof updater==="function"?updater(prev):updater;
-      if(user)syncToSupabase(prev,next,user.id);
+      if(user)debouncedSync(prev,next,user.id);
       return next;
     });
   },[user]);
@@ -515,8 +528,16 @@ function TrainerApp({user,profile,setProfile}){
   function openEdit(c){setEditForm({...c});setModal({type:"editClient"});}
   function saveClient(){
     if(!editForm.name.trim())return;
-    if(modal.type==="addClient")setClients(prev=>[...prev,{...editForm,id:crypto.randomUUID(),history:[]}]);
-    else setClients(prev=>prev.map(c=>c.id===editForm.id?editForm:c));
+    const sanitized={
+      ...editForm,
+      name:sanitize(editForm.name),
+      age:sanitize(editForm.age),
+      email:sanitize(editForm.email),
+      fee:sanitize(editForm.fee),
+      sessionPrice:sanitize(editForm.sessionPrice),
+    };
+    if(modal.type==="addClient")setClients(prev=>[...prev,{...sanitized,id:crypto.randomUUID(),history:[]}]);
+    else setClients(prev=>prev.map(c=>c.id===editForm.id?sanitized:c));
     setModal(null);
   }
   function deleteClient(id){setClients(prev=>prev.filter(c=>c.id!==id));setSelClient(null);setModal(null);}
@@ -586,7 +607,7 @@ function TrainerApp({user,profile,setProfile}){
               </div>
 
               {/* Today sessions */}
-              <div style={S.sTitle}>Azi — {todaySessionsAll.length} ședință{todaySessionsAll.length!==1?"e":""}</div>
+              <div style={S.sTitle}>Azi — {todaySessionsAll.length} {todaySessionsAll.length===1?"ședință":"ședințe"}</div>
               {todaySessionsAll.length===0
                 ?<div style={{...S.card,color:MUTED,fontSize:13}}>Nicio ședință programată azi</div>
                 :todaySessionsAll.map(s=>(
@@ -954,7 +975,7 @@ function ClientApp({user,profile,setProfile,clientCard}){
             {/* Today session for client */}
             {(()=>{const todaySessClient=(clientCard?.history||[]).filter(h=>h.type==="session"&&h.date===today()).sort((a,b)=>(a.time||"00:00").localeCompare(b.time||"00:00"));return todaySessClient.length>0&&(
               <div style={{...S.card,marginBottom:14,border:`1px solid ${ACCENT}40`}}>
-                <div style={{fontSize:11,color:ACCENT,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:8}}>Azi ai {todaySessClient.length} ședință{todaySessClient.length!==1?"e":""}</div>
+                <div style={{fontSize:11,color:ACCENT,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:8}}>Azi ai {todaySessClient.length} {todaySessClient.length===1?"ședință":"ședințe"}</div>
                 {todaySessClient.map(s=><div key={s.id} style={{fontSize:14,fontWeight:700,color:TEXT}}>{s.time||"—"}</div>)}
               </div>
             );})()}
@@ -1016,14 +1037,17 @@ function AuthScreen({onAuth}){
         if(error)throw error;
         onAuth();
       } else {
-        if(!name.trim())throw new Error("Introduceți numele.");
+        if(!sanitize(name))throw new Error("Introduceți numele.");
+        if(!isValidEmail(email))throw new Error("Adresă de email invalidă.");
+        if(!isStrongPassword(password))throw new Error("Parola trebuie să aibă minim 8 caractere, o literă mare și o cifră.");
         // Validate BEFORE creating account
         // Trainer role is verified server-side via DB trigger — no frontend secret needed
         let trainerId=null;
         if(role==="client"){
           if(!trainerJoinCode.trim())throw new Error("Introduceți codul antrenorului.");
           const{data:trainerProfile,error:tErr}=await supabase.from("profiles").select("id").eq("join_code",trainerJoinCode.trim().toUpperCase()).maybeSingle();
-          if(tErr||!trainerProfile)throw new Error("Codul antrenorului nu a fost găsit. Verificați codul și încercați din nou.");
+          // Vague error message — don't reveal if code exists or not
+          if(tErr||!trainerProfile)throw new Error("Cod invalid. Verificați codul primit de la antrenor.");
           trainerId=trainerProfile.id;
         }
         // All validation passed — now create the account
