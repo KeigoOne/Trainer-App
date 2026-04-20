@@ -791,14 +791,14 @@ function ClientApp({user,profile,setProfile,clientCard}){
           <>
             <div style={S.sTitle}>Rezumatul tău</div>
             <div style={{background:`linear-gradient(135deg,${ACCENT}20,${ACCENT}08)`,border:`1px solid ${ACCENT}40`,borderRadius:20,padding:"24px 20px",marginBottom:12,textAlign:"center"}}>
-              <div style={{fontSize:64,fontWeight:900,color:ACCENT,lineHeight:1}}>{clientCard.sessionsLeft??0}</div>
+              <div style={{fontSize:64,fontWeight:900,color:ACCENT,lineHeight:1}}>{clientCard?.sessionsLeft??0}</div>
               <div style={{fontSize:13,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.8px",marginTop:6}}>Ședințe rămase</div>
-              {clientCard.sessionsLeft>0&&clientCard.totalSessions>0&&<div style={{height:6,borderRadius:3,background:BORDER,marginTop:14,overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(clientCard.sessionsLeft/clientCard.totalSessions)*100)}%`,background:ACCENT}}/></div>}
+              {clientCard?.sessionsLeft>0&&clientCard?.totalSessions>0&&<div style={{height:6,borderRadius:3,background:BORDER,marginTop:14,overflow:"hidden"}}><div style={{height:"100%",borderRadius:3,width:`${Math.min(100,(clientCard?.sessionsLeft/clientCard?.totalSessions)*100)}%`,background:ACCENT}}/></div>}
             </div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
               <div style={{background:CARD,borderRadius:14,padding:14,border:`1px solid ${overdue?"#FF6B6B50":BORDER}`}}>
                 <div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:6}}>Următoarea plată</div>
-                {clientCard.nextDue?<><div style={{fontSize:14,fontWeight:800,color:overdue?ACCENT2:TEXT}}>{formatDate(clientCard.nextDue)}</div><div style={{fontSize:11,color:overdue?ACCENT2:MUTED,marginTop:4,fontWeight:600}}>{overdue?`${Math.abs(days)}z întârziere`:days===0?"Scade azi":`${days} zile`}</div></>:<div style={{fontSize:13,color:MUTED}}>—</div>}
+                {clientCard?.nextDue?<><div style={{fontSize:14,fontWeight:800,color:overdue?ACCENT2:TEXT}}>{formatDate(clientCard?.nextDue)}</div><div style={{fontSize:11,color:overdue?ACCENT2:MUTED,marginTop:4,fontWeight:600}}>{overdue?`${Math.abs(days)}z întârziere`:days===0?"Scade azi":`${days} zile`}</div></>:<div style={{fontSize:13,color:MUTED}}>—</div>}
               </div>
               <div style={{background:CARD,borderRadius:14,padding:14,border:`1px solid ${BORDER}`}}>
                 <div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:6}}>Ultima ședință</div>
@@ -807,8 +807,8 @@ function ClientApp({user,profile,setProfile,clientCard}){
             </div>
             <div style={S.sTitle}>Istoric activitate</div>
             <div style={{background:CARD,borderRadius:16,border:`1px solid ${BORDER}`,overflow:"hidden"}}>
-              {(clientCard.history||[]).length===0?<div style={{padding:16,color:MUTED,fontSize:14}}>Nicio activitate încă</div>
-                :[...(clientCard.history||[])].reverse().slice(0,10).map((h,i,arr)=>(
+              {(clientCard?.history||[]).length===0?<div style={{padding:16,color:MUTED,fontSize:14}}>Nicio activitate încă</div>
+                :[...(clientCard?.history||[])].reverse().slice(0,10).map((h,i,arr)=>(
                   <div key={h.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:i<arr.length-1?`1px solid ${BORDER}`:"none"}}>
                     <div style={S.row}><span style={{fontSize:17}}>{h.type==="payment"?"💳":"🏋️"}</span><div><div style={{fontSize:13,fontWeight:600}}>{h.note}</div><div style={{fontSize:11,color:MUTED}}>{formatDateTime(h.date,h.time)}</div></div></div>
                     {h.type==="payment"&&<span style={S.badge(ACCENT,`${ACCENT}20`)}>+{h.amount} RON</span>}
@@ -819,8 +819,8 @@ function ClientApp({user,profile,setProfile,clientCard}){
           </>
         )}
         {view==="calendar"&&(<><div style={S.sTitle}>📅 Prezențele tale</div><MiniCalendar sessionDates={sessionDates} paymentDates={paymentDates}/></>)}
-        {view==="measures"&&<MeasurementsSection clientId={clientCard.id}/>}
-        {view==="photos"&&<ProgressPhotosSection clientId={clientCard.id}/>}
+        {view==="measures"&&<MeasurementsSection clientId={clientCard?.id}/>}
+        {view==="photos"&&<ProgressPhotosSection clientId={clientCard?.id}/>}
         {view==="profile"&&<ProfileView user={user} profile={profile} setProfile={setProfile}/>}
       </div>
     </div>
