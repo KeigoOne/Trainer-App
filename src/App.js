@@ -1,5 +1,26 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
+import { LOGO_B64 } from "./logo";
+
+// ─── MOTIVATIONAL QUOTES ──────────────────────────────────────────────────────
+const QUOTES = [
+  { text: "Succesul nu vine la tine — tu mergi la el.", author: "Marva Collins" },
+  { text: "Corpul tău poate rezista aproape orice. Este mintea ta cea care trebuie convinsă.", author: "" },
+  { text: "Nu număra zilele. Fă ca zilele să conteze.", author: "Muhammad Ali" },
+  { text: "Durerea pe care o simți azi va fi puterea pe care o vei simți mâine.", author: "" },
+  { text: "Un an de acum, vei dori să fi început azi.", author: "" },
+  { text: "Fiecare antrenament este un pas mai aproape de versiunea ta cea mai bună.", author: "" },
+  { text: "Disciplina este puntea dintre obiective și realizări.", author: "Jim Rohn" },
+  { text: "Progresul nu trebuie să fie perfect. Trebuie doar să fie consistent.", author: "" },
+  { text: "The body achieves what the mind believes.", author: "" },
+  { text: "Take care of your body. It's the only place you have to live.", author: "Jim Rohn" },
+  { text: "Sănătatea nu este totul, dar fără sănătate totul este nimic.", author: "" },
+  { text: "Fiecare repetare te aduce mai aproape de obiectivul tău.", author: "" },
+  { text: "Strong body, strong mind.", author: "" },
+  { text: "Motivația te pornește. Obișnuința te menține în mișcare.", author: "" },
+  { text: "Fii mai bun decât erai ieri.", author: "" },
+];
+function getQuote(){ return QUOTES[Math.floor(Math.random()*QUOTES.length)]; }
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const ACCENT = "#00E5A0";
@@ -79,7 +100,7 @@ function useStorage(user){
 
 // ─── STYLES ───────────────────────────────────────────────────────────────────
 const S={
-  app:{minHeight:"100vh",background:BG,color:TEXT,fontFamily:"'DM Sans',sans-serif",paddingBottom:40},
+  app:{minHeight:"100vh",background:BG,color:TEXT,fontFamily:"'DM Sans',sans-serif",paddingBottom:40,position:"relative"},
   header:{background:`linear-gradient(135deg,${CARD} 0%,#12161F 100%)`,borderBottom:`1px solid ${BORDER}`,padding:"16px 18px",position:"sticky",top:0,zIndex:200},
   main:{padding:"16px 14px",maxWidth:500,margin:"0 auto"},
   sTitle:{fontSize:11,fontWeight:700,color:MUTED,letterSpacing:"1px",textTransform:"uppercase",marginBottom:10},
@@ -498,6 +519,234 @@ function QuickSessionModal({clients,initialDate,onClose,onConfirm}){
   );
 }
 
+
+// ─── BOOKING SYSTEM ───────────────────────────────────────────────────────────
+const DAYS_RO = ["Duminică","Luni","Marți","Miercuri","Joi","Vineri","Sâmbătă"];
+
+// Trainer: manage time slots
+function TrainerBookingView({user}){
+  const[slots,setSlots]=useState([]);
+  const[bookings,setBookings]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[showAdd,setShowAdd]=useState(false);
+  const[form,setForm]=useState({day_of_week:"1",start_time:"09:00",end_time:"10:00",max_bookings:1,repeat:true,specific_date:""});
+
+  useEffect(()=>{
+    Promise.all([
+      supabase.from("time_slots").select("*").eq("trainer_id",user.id).order("day_of_week").order("start_time"),
+      supabase.from("bookings").select("*,time_slots(start_time,end_time,day_of_week)").eq("trainer_id",user.id).eq("status","confirmed")
+    ]).then(([{data:s},{data:b}])=>{
+      if(s)setSlots(s);
+      if(b)setBookings(b);
+      setLoading(false);
+    });
+  },[user.id]);
+
+  async function addSlot(){
+    const{data,error}=await supabase.from("time_slots").insert({
+      trainer_id:user.id,
+      day_of_week:form.repeat?Number(form.day_of_week):null,
+      specific_date:form.repeat?null:form.specific_date||null,
+      start_time:form.start_time,
+      end_time:form.end_time,
+      max_bookings:Number(form.max_bookings),
+      repeat:form.repeat
+    }).select().single();
+    if(!error&&data){setSlots(p=>[...p,data]);setShowAdd(false);}
+  }
+
+  async function deleteSlot(id){
+    await supabase.from("time_slots").delete().eq("id",id);
+    setSlots(p=>p.filter(s=>s.id!==id));
+  }
+
+  const slotBookings=(slotId)=>bookings.filter(b=>b.slot_id===slotId);
+
+  return(
+    <div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+        <div style={S.sTitle}>🗓 Sloturi de rezervare</div>
+        <button style={S.btn("success")} onClick={()=>setShowAdd(true)}>+ Adaugă</button>
+      </div>
+      {loading?<div style={{color:MUTED,fontSize:13}}>Se încarcă...</div>:
+        slots.length===0?<div style={{...S.card,color:MUTED,fontSize:13}}>Niciun slot definit încă</div>:
+        slots.map(slot=>{
+          const booked=slotBookings(slot.id);
+          const spotsLeft=slot.max_bookings-booked.length;
+          return(
+            <div key={slot.id} style={{...S.card,marginBottom:8}}>
+              <div style={S.sb}>
+                <div>
+                  <div style={{fontSize:14,fontWeight:700}}>{slot.repeat?DAYS_RO[slot.day_of_week]:slot.specific_date} · {slot.start_time}–{slot.end_time}</div>
+                  <div style={{fontSize:12,color:MUTED,marginTop:2}}>{slot.repeat?"Recurent săptămânal":"O singură dată"}</div>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={S.badge(spotsLeft>0?ACCENT:ACCENT2,spotsLeft>0?`${ACCENT}20`:`${ACCENT2}20`)}>{booked.length}/{slot.max_bookings}</span>
+                  <button style={{...S.btn("icon"),color:ACCENT2}} onClick={()=>deleteSlot(slot.id)}>✕</button>
+                </div>
+              </div>
+              {booked.length>0&&(
+                <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${BORDER}`}}>
+                  {booked.map(b=>(
+                    <div key={b.id} style={{fontSize:12,color:MUTED,display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                      <span style={{color:ACCENT}}>✓</span>{b.client_name} {b.booking_date&&`· ${b.booking_date}`}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })
+      }
+
+      {showAdd&&(
+        <div style={S.modal} onClick={()=>setShowAdd(false)}>
+          <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:18,fontWeight:800,marginBottom:16}}>🗓 Slot nou</div>
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
+              {[[true,"🔁 Recurent"],[false,"📅 O dată"]].map(([val,label])=>(
+                <button key={String(val)} onClick={()=>setForm(p=>({...p,repeat:val}))} style={{flex:1,padding:"9px",borderRadius:10,border:`2px solid ${form.repeat===val?ACCENT:BORDER}`,background:form.repeat===val?`${ACCENT}15`:CARD2,color:form.repeat===val?ACCENT:MUTED,fontFamily:"'DM Sans',sans-serif",fontSize:13,fontWeight:700,cursor:"pointer"}}>{label}</button>
+              ))}
+            </div>
+            {form.repeat?(
+              <><label style={S.label}>Ziua săptămânii</label>
+              <select style={{...S.input,marginBottom:12,appearance:"none"}} value={form.day_of_week} onChange={e=>setForm(p=>({...p,day_of_week:e.target.value}))}>
+                {DAYS_RO.map((d,i)=><option key={i} value={i}>{d}</option>)}
+              </select></>
+            ):(
+              <><label style={S.label}>Data specifică</label>
+              <input type="date" style={{...S.input,marginBottom:12,colorScheme:"dark"}} value={form.specific_date} onChange={e=>setForm(p=>({...p,specific_date:e.target.value}))}/></>
+            )}
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+              <div><label style={S.label}>Ora start</label><input type="time" style={{...S.input,colorScheme:"dark"}} value={form.start_time} onChange={e=>setForm(p=>({...p,start_time:e.target.value}))}/></div>
+              <div><label style={S.label}>Ora final</label><input type="time" style={{...S.input,colorScheme:"dark"}} value={form.end_time} onChange={e=>setForm(p=>({...p,end_time:e.target.value}))}/></div>
+            </div>
+            <label style={S.label}>Locuri disponibile</label>
+            <input type="number" style={{...S.input,marginBottom:18}} min="1" value={form.max_bookings} onChange={e=>setForm(p=>({...p,max_bookings:e.target.value}))}/>
+            <div style={{display:"flex",gap:8}}>
+              <button style={{...S.btn(),flex:1}} onClick={()=>setShowAdd(false)}>Anulează</button>
+              <button style={{...S.btn("primary"),flex:2}} onClick={addSlot}>✅ Salvează slot</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Client: view and book slots
+function ClientBookingView({user,profile,clientCard}){
+  const[slots,setSlots]=useState([]);
+  const[myBookings,setMyBookings]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[booking,setBooking]=useState(null);
+  const[msg,setMsg]=useState("");
+
+  useEffect(()=>{
+    if(!profile?.trainer_id)return;
+    Promise.all([
+      supabase.from("time_slots").select("*").eq("trainer_id",profile.trainer_id).order("day_of_week").order("start_time"),
+      supabase.from("bookings").select("*").eq("client_id",user.id)
+    ]).then(([{data:s},{data:b}])=>{
+      if(s)setSlots(s);
+      if(b)setMyBookings(b);
+      setLoading(false);
+    });
+  },[profile?.trainer_id,user.id]);
+
+  async function book(slot,date){
+    // Check spots
+    const{data:existing}=await supabase.from("bookings").select("id").eq("slot_id",slot.id).eq("booking_date",date).eq("status","confirmed");
+    if(existing&&existing.length>=slot.max_bookings){setMsg("Nu mai sunt locuri disponibile pentru această dată.");return;}
+    const{data,error}=await supabase.from("bookings").insert({
+      slot_id:slot.id,trainer_id:profile.trainer_id,client_id:user.id,
+      client_name:profile.name||user.email,booking_date:date,status:"confirmed"
+    }).select().single();
+    if(!error&&data){setMyBookings(p=>[...p,data]);setBooking(null);setMsg("Rezervare confirmată! ✅");}
+    else setMsg("Eroare la rezervare.");
+    setTimeout(()=>setMsg(""),3000);
+  }
+
+  async function cancelBooking(id){
+    await supabase.from("bookings").update({status:"cancelled"}).eq("id",id);
+    setMyBookings(p=>p.filter(b=>b.id!==id));
+    setMsg("Rezervare anulată.");
+    setTimeout(()=>setMsg(""),3000);
+  }
+
+  function getNextDate(dayOfWeek){
+    const today=new Date();
+    const diff=(dayOfWeek-today.getDay()+7)%7||7;
+    const next=new Date(today);
+    next.setDate(today.getDate()+diff);
+    return next.toISOString().split("T")[0];
+  }
+
+  const activeBookings=myBookings.filter(b=>b.status==="confirmed");
+
+  return(
+    <div>
+      <div style={S.sTitle}>🗓 Rezervări</div>
+      {msg&&<div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:10,padding:"10px 14px",fontSize:13,color:ACCENT,marginBottom:12}}>{msg}</div>}
+
+      {activeBookings.length>0&&(
+        <>
+          <div style={{fontSize:11,fontWeight:700,color:MUTED,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>Rezervările mele</div>
+          {activeBookings.map(b=>(
+            <div key={b.id} style={{...S.card,padding:"12px 14px",marginBottom:8,border:`1px solid ${ACCENT}40`}}>
+              <div style={S.sb}>
+                <div><div style={{fontSize:14,fontWeight:700,color:ACCENT}}>{b.booking_date}</div><div style={{fontSize:12,color:MUTED}}>Confirmat</div></div>
+                <button style={S.btn("danger")} onClick={()=>cancelBooking(b.id)}>Anulează</button>
+              </div>
+            </div>
+          ))}
+          <div style={S.divider}/>
+        </>
+      )}
+
+      <div style={{fontSize:11,fontWeight:700,color:MUTED,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>Sloturi disponibile</div>
+      {loading?<div style={{color:MUTED,fontSize:13}}>Se încarcă...</div>:
+        slots.length===0?<div style={{color:MUTED,fontSize:13}}>Niciun slot disponibil momentan</div>:
+        slots.map(slot=>(
+          <div key={slot.id} style={S.card}>
+            <div style={S.sb}>
+              <div>
+                <div style={{fontSize:14,fontWeight:700}}>{slot.repeat?DAYS_RO[slot.day_of_week]:slot.specific_date} · {slot.start_time}–{slot.end_time}</div>
+                <div style={{fontSize:12,color:MUTED,marginTop:2}}>{slot.repeat?"Săptămânal":""} · {slot.max_bookings} {slot.max_bookings===1?"loc":"locuri"}</div>
+              </div>
+              <button style={S.btn("primary")} onClick={()=>setBooking(slot)}>Rezervă</button>
+            </div>
+          </div>
+        ))
+      }
+
+      {booking&&(
+        <div style={S.modal} onClick={()=>setBooking(null)}>
+          <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:18,fontWeight:800,marginBottom:6}}>🗓 Confirmă rezervarea</div>
+            <div style={{fontSize:13,color:MUTED,marginBottom:16}}>{booking.start_time}–{booking.end_time} · {booking.repeat?DAYS_RO[booking.day_of_week]:booking.specific_date}</div>
+            {booking.repeat&&(
+              <><label style={S.label}>Alege data</label>
+              <input type="date" style={{...S.input,marginBottom:18,colorScheme:"dark"}}
+                defaultValue={getNextDate(booking.day_of_week)}
+                min={new Date().toISOString().split("T")[0]}
+                id="booking-date-input"
+              /></>
+            )}
+            <div style={{display:"flex",gap:8}}>
+              <button style={{...S.btn(),flex:1}} onClick={()=>setBooking(null)}>Anulează</button>
+              <button style={{...S.btn("primary"),flex:2}} onClick={()=>{
+                const dateVal=booking.repeat?document.getElementById("booking-date-input")?.value:booking.specific_date;
+                if(dateVal)book(booking,dateVal);
+              }}>✅ Confirmă</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── TRAINER APP ──────────────────────────────────────────────────────────────
 function TrainerApp({user,profile,setProfile}){
   const[clients,setClients,dbLoading]=useStorage(user);
@@ -566,13 +815,15 @@ function TrainerApp({user,profile,setProfile}){
   }
 
   const client=selClient?clients.find(c=>c.id===selClient):null;
-  const navItems=[["welcome","🏠","Acasă"],["clients","👥","Clienți"],["calendar","📅","Calendar"],["today","⚡","Azi"],["profile","👤","Profil"]];
+  const navItems=[["welcome","🏠","Acasă"],["clients","👥","Clienți"],["calendar","📅","Calendar"],["today","⚡","Azi"],["booking","🗓","Rezervări"],["profile","👤","Profil"]];
 
   const viewTitle=selClient&&client?client.name:navItems.find(([v])=>v===view)?.[2]||"";
 
   return(
     <div style={S.app}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+      {/* Background logo */}
+      <div style={{position:"fixed",inset:0,backgroundImage:`url(${LOGO_B64})`,backgroundSize:"280px",backgroundRepeat:"no-repeat",backgroundPosition:"center center",opacity:0.04,pointerEvents:"none",zIndex:0}}/>
       {dbLoading&&<div style={{position:"fixed",inset:0,background:BG,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",zIndex:9999}}><div style={{fontSize:40,marginBottom:16}}>💪</div><div style={{color:ACCENT,fontSize:14,fontWeight:700}}>Se încarcă...</div></div>}
 
       <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} items={navItems} onSelect={(v)=>{setView(v);setSelClient(null);}} activeView={view} user={user} profile={profile}/>
@@ -600,11 +851,17 @@ function TrainerApp({user,profile,setProfile}){
           return(
             <>
               {/* Greeting */}
+              {(()=>{const q=getQuote();return(
               <div style={{background:`linear-gradient(135deg,${CARD},${CARD2})`,borderRadius:20,padding:"20px 18px",border:`1px solid ${BORDER}`,marginBottom:14}}>
                 <div style={{fontSize:13,color:MUTED,fontWeight:600,marginBottom:4}}>Bună ziua,</div>
                 <div style={{fontSize:22,fontWeight:900,color:TEXT,letterSpacing:"-0.5px"}}>{trainerName} 💪</div>
-                <div style={{fontSize:12,color:MUTED,marginTop:4}}>{new Date().toLocaleDateString("ro-RO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+                <div style={{fontSize:12,color:MUTED,marginTop:4,marginBottom:12}}>{new Date().toLocaleDateString("ro-RO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+                <div style={{borderTop:`1px solid ${BORDER}`,paddingTop:12,marginTop:4}}>
+                  <div style={{fontSize:13,fontStyle:"italic",color:TEXT,lineHeight:1.5}}>"{q.text}"</div>
+                  {q.author&&<div style={{fontSize:11,color:MUTED,marginTop:4,fontWeight:600}}>— {q.author}</div>}
+                </div>
               </div>
+              );})()}
 
               {/* Today sessions */}
               <div style={S.sTitle}>Azi — {todaySessionsAll.length} {todaySessionsAll.length===1?"ședință":"ședințe"}</div>
@@ -785,6 +1042,8 @@ function TrainerApp({user,profile,setProfile}){
           </>
         )}
 
+        {view==="booking"&&<TrainerBookingView user={user}/>}
+        {view==="booking"&&<ClientBookingView user={user} profile={profile} clientCard={clientCard}/>}
         {view==="profile"&&<ProfileView user={user} profile={profile} setProfile={setProfile}/>}
       </div>
 
@@ -938,7 +1197,7 @@ function UnlinkedScreen({user,profile}){
 function ClientApp({user,profile,setProfile,clientCard,refreshClientCard}){
   const[view,setView]=useState("welcome");
   const[drawerOpen,setDrawerOpen]=useState(false);
-  const navItems=[["welcome","🏠","Acasă"],["calendar","📅","Calendar"],["measures","📏","Măsurători"],["photos","📸","Poze"],["profile","👤","Profil"]];
+  const navItems=[["welcome","🏠","Acasă"],["calendar","📅","Calendar"],["booking","🗓","Rezervări"],["measures","📏","Măsurători"],["photos","📸","Poze"],["profile","👤","Profil"]];
 
   // Refresh client card on mount to always show latest data
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -957,6 +1216,8 @@ function ClientApp({user,profile,setProfile,clientCard,refreshClientCard}){
   return(
     <div style={S.app}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+      {/* Background logo */}
+      <div style={{position:"fixed",inset:0,backgroundImage:`url(${LOGO_B64})`,backgroundSize:"280px",backgroundRepeat:"no-repeat",backgroundPosition:"center center",opacity:0.04,pointerEvents:"none",zIndex:0}}/>
       <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} items={navItems} onSelect={(v)=>{setView(v);}} activeView={view} user={user} profile={profile}/>
       <div style={S.header}>
         <div style={S.sb}>
@@ -971,11 +1232,17 @@ function ClientApp({user,profile,setProfile,clientCard,refreshClientCard}){
         {view==="welcome"&&(
           <>
             {/* Client greeting */}
+            {(()=>{const q=getQuote();return(
             <div style={{background:`linear-gradient(135deg,${CARD},${CARD2})`,borderRadius:20,padding:"20px 18px",border:`1px solid ${BORDER}`,marginBottom:14}}>
               <div style={{fontSize:13,color:MUTED,fontWeight:600,marginBottom:4}}>Bună ziua,</div>
               <div style={{fontSize:22,fontWeight:900,color:TEXT,letterSpacing:"-0.5px"}}>{profile?.name||user?.email?.split("@")[0]} 👋</div>
-              <div style={{fontSize:12,color:MUTED,marginTop:4}}>{new Date().toLocaleDateString("ro-RO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+              <div style={{fontSize:12,color:MUTED,marginTop:4,marginBottom:12}}>{new Date().toLocaleDateString("ro-RO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+              <div style={{borderTop:`1px solid ${BORDER}`,paddingTop:12,marginTop:4}}>
+                <div style={{fontSize:13,fontStyle:"italic",color:TEXT,lineHeight:1.5}}>"{q.text}"</div>
+                {q.author&&<div style={{fontSize:11,color:MUTED,marginTop:4,fontWeight:600}}>— {q.author}</div>}
+              </div>
             </div>
+            );})()}
             {/* Today session for client */}
             {(()=>{const todaySessClient=(clientCard?.history||[]).filter(h=>h.type==="session"&&h.date===today()).sort((a,b)=>(a.time||"00:00").localeCompare(b.time||"00:00"));return todaySessClient.length>0&&(
               <div style={{...S.card,marginBottom:14,border:`1px solid ${ACCENT}40`}}>
@@ -1024,6 +1291,19 @@ function ClientApp({user,profile,setProfile,clientCard,refreshClientCard}){
 // ─── AUTH SCREEN ──────────────────────────────────────────────────────────────
 function AuthScreen({onAuth}){
   const[mode,setMode]=useState("login");
+  const[installPrompt,setInstallPrompt]=useState(null);
+  const[installed,setInstalled]=useState(false);
+  useEffect(()=>{
+    window.addEventListener("beforeinstallprompt",(e)=>{e.preventDefault();setInstallPrompt(e);});
+    window.addEventListener("appinstalled",()=>setInstalled(true));
+  },[]);
+  async function handleInstall(){
+    if(!installPrompt)return;
+    installPrompt.prompt();
+    const{outcome}=await installPrompt.userChoice;
+    if(outcome==="accepted")setInstalled(true);
+    setInstallPrompt(null);
+  }
   const[role,setRole]=useState("client");
   const[email,setEmail]=useState("");
   const[password,setPassword]=useState("");
@@ -1078,9 +1358,17 @@ function AuthScreen({onAuth}){
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
       <div style={{width:"100%",maxWidth:400}}>
         <div style={{textAlign:"center",marginBottom:32}}>
-          <div style={{width:60,height:60,borderRadius:16,background:`linear-gradient(135deg,${ACCENT},#00B87A)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,margin:"0 auto 14px"}}>💪</div>
+          <div style={{width:60,height:60,borderRadius:16,background:`linear-gradient(135deg,${ACCENT},#00B87A)`,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 14px",overflow:"hidden"}}>
+            <img src={LOGO_B64} alt="PT Tracker" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+          </div>
           <div style={{fontSize:26,fontWeight:900,color:TEXT,letterSpacing:"-0.5px"}}>PT Tracker</div>
           <div style={{fontSize:13,color:MUTED,marginTop:4,textTransform:"uppercase",letterSpacing:"0.8px"}}>Personal Trainer Pro</div>
+          {installPrompt&&!installed&&(
+            <button onClick={handleInstall} style={{marginTop:14,background:`${ACCENT}20`,border:`1px solid ${ACCENT}40`,borderRadius:10,padding:"9px 18px",color:ACCENT,cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"'DM Sans',sans-serif",display:"inline-flex",alignItems:"center",gap:6}}>
+              📲 Adaugă pe ecranul principal
+            </button>
+          )}
+          {installed&&<div style={{marginTop:10,fontSize:12,color:ACCENT}}>✓ Aplicație instalată!</div>}
         </div>
         <div style={{background:CARD,borderRadius:20,padding:"28px 24px",border:`1px solid ${BORDER}`}}>
           <div style={{display:"flex",background:CARD2,borderRadius:10,padding:3,marginBottom:20}}>
