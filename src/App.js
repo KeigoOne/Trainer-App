@@ -961,8 +961,10 @@ export default function Root(){
   }
 
   if(!user)return<AuthScreen onAuth={()=>supabase.auth.getUser().then(({data:{user}})=>setUser(user))}/>;
-  if(profile?.role==="client")return<ClientApp user={user} profile={profile} setProfile={setProfile} clientCard={clientCard}/>;
-  if(profile?.role==="trainer"||profile?.role==="admin")return<TrainerApp user={user} profile={profile} setProfile={setProfile}/>;
-  // No profile yet - show loading
-  return<ClientApp user={user} profile={profile} setProfile={setProfile} clientCard={clientCard}/>;
+  // If profile not loaded yet, keep showing loading spinner
+  if(!profile)return(<div style={{minHeight:"100vh",background:BG,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans',sans-serif"}}><div style={{fontSize:40,marginBottom:16}}>💪</div><div style={{color:ACCENT,fontSize:14,fontWeight:700}}>Se încarcă profilul...</div><button style={{marginTop:24,background:"transparent",border:`1px solid ${BORDER}`,borderRadius:9,padding:"8px 16px",color:MUTED,cursor:"pointer",fontSize:13,fontFamily:"'DM Sans',sans-serif"}} onClick={()=>supabase.auth.signOut()}>Deconectare</button></div>);
+  if(profile.role==="client")return<ClientApp user={user} profile={profile} setProfile={setProfile} clientCard={clientCard}/>;
+  if(profile.role==="trainer"||profile.role==="admin")return<TrainerApp user={user} profile={profile} setProfile={setProfile}/>;
+  // Unknown role - show logout
+  return(<div style={{minHeight:"100vh",background:BG,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans',sans-serif"}}><div style={{fontSize:40,marginBottom:16}}>⚠️</div><div style={{color:ACCENT2,fontSize:14,fontWeight:700,marginBottom:16}}>Rol necunoscut: {profile.role}</div><button style={{background:"transparent",border:`1px solid ${BORDER}`,borderRadius:9,padding:"8px 16px",color:MUTED,cursor:"pointer",fontSize:13,fontFamily:"'DM Sans',sans-serif"}} onClick={()=>supabase.auth.signOut()}>Deconectare</button></div>);
 }
