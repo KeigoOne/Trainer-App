@@ -1117,12 +1117,10 @@ export default function Root(){
     supabase.from("profiles").select("*").eq("id",user.id).single().then(async({data:prof})=>{
       setProfile(prof);
       if(prof?.role==="client"){
-        const{data:card}=await supabase.from("clients").select("data").eq("client_user_id",user.id).single();
-        if(card){setClientCard(card.data);}
-        else{
-          const{data:byEmail}=await supabase.from("clients").select("id,data").eq("client_email",user.email).maybeSingle();
-          if(byEmail){await supabase.from("clients").update({client_user_id:user.id}).eq("id",byEmail.id);setClientCard(byEmail.data);}
-        }
+        // Use RPC to bypass RLS — function verifies identity server-side
+        const{data:rpcData,error:rpcErr}=await supabase.rpc("get_client_card");
+        console.log("GET_CLIENT_CARD result:",rpcData,"error:",rpcErr);
+        if(rpcData?.found){setClientCard(rpcData.data);}
       }
       setProfileLoading(false);
     });
