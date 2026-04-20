@@ -942,8 +942,7 @@ export default function Root(){
   useEffect(()=>{
     if(!user)return;
     setProfileLoading(true);
-    supabase.from("profiles").select("*").eq("id",user.id).single().then(async({data:prof, error:profErr})=>{
-      console.log("PROFILE FETCH:", prof, "ERROR:", profErr);
+    supabase.from("profiles").select("*").eq("id",user.id).single().then(async({data:prof})=>{
       setProfile(prof);
       if(prof?.role==="client"){
         const{data:card}=await supabase.from("clients").select("data").eq("client_user_id",user.id).single();
