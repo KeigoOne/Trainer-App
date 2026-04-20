@@ -545,7 +545,7 @@ function TrainerApp({user,profile,setProfile}){
   }
 
   const client=selClient?clients.find(c=>c.id===selClient):null;
-  const navItems=[["welcome","🏠","Acasă"],["clients","👥","Clienți"],["calendar","📅","Calendar"],["today","⚡","Azi"],["summary","📊","Sumar"],["profile","👤","Profil"]];
+  const navItems=[["welcome","🏠","Acasă"],["clients","👥","Clienți"],["calendar","📅","Calendar"],["today","⚡","Azi"],["profile","👤","Profil"]];
 
   const viewTitle=selClient&&client?client.name:navItems.find(([v])=>v===view)?.[2]||"";
 
@@ -626,11 +626,35 @@ function TrainerApp({user,profile,setProfile}){
               )}
 
               {/* Quick stats */}
-              <div style={S.sTitle}>Rezumat</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                <div style={S.statBox}><div style={{fontSize:22,fontWeight:900,color:ACCENT}}>{clients.length}</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",marginTop:2}}>Clienți activi</div></div>
-                <div style={S.statBox}><div style={{fontSize:22,fontWeight:900,color:"#A29BFE"}}>{todayIncome} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",marginTop:2}}>Câștig azi</div></div>
+              <div style={S.sTitle}>Rezumat financiar</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
+                <div style={S.statBox}><div style={{fontSize:22,fontWeight:900,color:ACCENT}}>{todayIncome} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",marginTop:2}}>Câștig azi</div></div>
+                <div style={S.statBox}><div style={{fontSize:22,fontWeight:900,color:"#A29BFE"}}>{monthIncome} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",marginTop:2}}>Luna aceasta</div></div>
               </div>
+
+              {/* All clients summary */}
+              {clients.length>0&&(
+                <>
+                  <div style={S.sTitle}>Toți clienții</div>
+                  {clients.map(c=>{
+                    const d=daysUntil(c.nextDue),ov=d!==null&&d<0;
+                    const earned=(c.history||[]).filter(h=>h.type==="payment").reduce((s,h)=>s+Number(h.amount||0),0);
+                    return(
+                      <div key={c.id} style={{...S.card,cursor:"pointer"}} onClick={()=>{setSelClient(c.id);setView("clients");}}>
+                        <div style={S.sb}>
+                          <div style={S.row}><div style={{...S.avatar(c.gender),width:32,height:32,fontSize:15}}>{genderEmoji(c.gender)}</div><div style={{fontWeight:700}}>{c.name}</div></div>
+                          {c.nextDue&&<span style={S.badge(ov?ACCENT2:ACCENT,ov?`${ACCENT2}20`:`${ACCENT}20`)}>{ov?`${Math.abs(d)}z întârziere`:`${d}z`}</span>}
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10}}>
+                          {[[c.sessionsLeft??0,"ȘEDINȚE",ACCENT],[c.fee?`${c.fee} RON`:"—","ABONAMENT","#FFB74D"],[`${earned} RON`,"TOTAL","#A29BFE"]].map(([v,l,col])=>(
+                            <div key={l} style={{background:CARD2,borderRadius:8,padding:"8px 5px",textAlign:"center"}}><div style={{fontSize:13,fontWeight:800,color:col}}>{v}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>{l}</div></div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
             </>
           );
         })()}
@@ -737,19 +761,6 @@ function TrainerApp({user,profile,setProfile}){
             <div style={S.sTitle}>Marchează rapid</div>
             {clients.filter(c=>c.sessionsLeft>0).map(c=>(<div key={c.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}><div style={S.sb}><div style={S.row}><div style={{...S.avatar(c.gender),width:32,height:32,fontSize:15}}>{genderEmoji(c.gender)}</div><div><div style={{fontWeight:600}}>{c.name}</div><div style={{fontSize:12,color:MUTED}}>{c.sessionsLeft} rămase</div></div></div><button style={S.btn("success")} onClick={()=>openMarkSession(c.id)}>✅ Done</button></div></div>))}
             {clients.filter(c=>c.sessionsLeft>0).length===0&&<div style={{color:MUTED,fontSize:14}}>Niciun client cu ședințe disponibile</div>}
-          </>
-        )}
-
-        {view==="summary"&&(
-          <>
-            <div style={S.sTitle}>Prezentare financiară</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:16}}>
-              <div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:12,padding:14,textAlign:"center"}}><div style={{fontSize:20,fontWeight:900,color:ACCENT}}>{todayIncome} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Azi</div></div>
-              <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:14,textAlign:"center"}}><div style={{fontSize:20,fontWeight:900,color:"#A29BFE"}}>{monthIncome} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Luna aceasta</div></div>
-            </div>
-            <div style={S.sTitle}>Toți clienții</div>
-            {clients.map(c=>{const days=daysUntil(c.nextDue),overdue=days!==null&&days<0;const totalEarned=(c.history||[]).filter(h=>h.type==="payment").reduce((s,h)=>s+Number(h.amount||0),0);return(<div key={c.id} style={S.card}><div style={S.sb}><div style={S.row}><div style={{...S.avatar(c.gender),width:32,height:32,fontSize:15}}>{genderEmoji(c.gender)}</div><div style={{fontWeight:700}}>{c.name}</div></div>{c.nextDue&&<span style={S.badge(overdue?ACCENT2:ACCENT,overdue?`${ACCENT2}20`:`${ACCENT}20`)}>{overdue?`${Math.abs(days)}z întârziere`:`${days}z`}</span>}</div><div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10}}>{[[c.sessionsLeft??0,"ȘEDINȚE",ACCENT],[c.fee?`${c.fee} RON`:"—","ABONAMENT","#FFB74D"],[`${totalEarned} RON`,"TOTAL","#A29BFE"]].map(([v,l,col])=>(<div key={l} style={{background:CARD2,borderRadius:8,padding:"8px 5px",textAlign:"center"}}><div style={{fontSize:13,fontWeight:800,color:col}}>{v}</div><div style={{fontSize:9,color:MUTED,fontWeight:700}}>{l}</div></div>))}</div></div>);})}
-            {clients.length===0&&<div style={{color:MUTED,fontSize:14,textAlign:"center",padding:24}}>Adaugă clienți pentru a vedea sumarul</div>}
           </>
         )}
 
@@ -867,6 +878,45 @@ function TrainerApp({user,profile,setProfile}){
   );
 }
 
+
+// ─── UNLINKED SCREEN ──────────────────────────────────────────────────────────
+function UnlinkedScreen({user,profile}){
+  const[retrying,setRetrying]=useState(false);
+  const[msg,setMsg]=useState("");
+
+  async function retryLink(){
+    setRetrying(true);setMsg("");
+    try{
+      // Try to find client card by email
+      const{data:byEmail}=await supabase.from("clients").select("id,data,user_id").eq("client_email",user.email).maybeSingle();
+      if(!byEmail){setMsg("Antrenorul nu a adăugat încă emailul tău. Încearcă din nou mai târziu.");setRetrying(false);return;}
+      // Link it
+      await supabase.from("clients").update({client_user_id:user.id}).eq("id",byEmail.id);
+      // Also update trainer_id in profile
+      await supabase.from("profiles").update({trainer_id:byEmail.user_id}).eq("id",user.id);
+      setMsg("Cont legat cu succes! Se reîncarcă...");
+      setTimeout(()=>window.location.reload(),1500);
+    }catch(e){setMsg("Eroare: "+e.message);}
+    setRetrying(false);
+  }
+
+  return(
+    <div style={{...S.app,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,textAlign:"center"}}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
+      <div style={{fontSize:48,marginBottom:16}}>🔗</div>
+      <div style={{fontSize:18,fontWeight:800,marginBottom:8}}>Cont nelegat</div>
+      <div style={{fontSize:14,color:MUTED,lineHeight:1.6,marginBottom:24}}>
+        Antrenorul tău trebuie să adauge emailul tău (<strong style={{color:TEXT}}>{user.email}</strong>) în profilul tău de client. După ce face asta, apasă butonul de mai jos.
+      </div>
+      {msg&&<div style={{background:msg.includes("succes")?`${ACCENT}15`:`${ACCENT2}15`,border:`1px solid ${msg.includes("succes")?ACCENT:ACCENT2}40`,borderRadius:10,padding:"10px 14px",fontSize:13,color:msg.includes("succes")?ACCENT:ACCENT2,marginBottom:16,width:"100%"}}>{msg}</div>}
+      <button style={{...S.btn("primary"),marginBottom:12,justifyContent:"center"}} onClick={retryLink} disabled={retrying}>
+        {retrying?"Se verifică...":"🔄 Am fost adăugat, încearcă din nou"}
+      </button>
+      <button style={S.btn("ghost")} onClick={()=>supabase.auth.signOut()}>⏻ Deconectare</button>
+    </div>
+  );
+}
+
 // ─── CLIENT APP ───────────────────────────────────────────────────────────────
 function ClientApp({user,profile,setProfile,clientCard}){
   const[view,setView]=useState("dashboard");
@@ -874,15 +924,7 @@ function ClientApp({user,profile,setProfile,clientCard}){
   const navItems=[["welcome","🏠","Acasă"],["calendar","📅","Calendar"],["measures","📏","Măsurători"],["photos","📸","Poze"],["profile","👤","Profil"]];
 
   if(!clientCard&&profile?.role==="client"){
-    return(
-      <div style={{...S.app,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,textAlign:"center"}}>
-        <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
-        <div style={{fontSize:48,marginBottom:16}}>🔗</div>
-        <div style={{fontSize:18,fontWeight:800,marginBottom:8}}>Cont nelegat</div>
-        <div style={{fontSize:14,color:MUTED,lineHeight:1.6,marginBottom:24}}>Contul tău nu este încă legat de un antrenor. Contactează antrenorul și asigură-te că a adăugat emailul tău (<strong style={{color:TEXT}}>{user.email}</strong>) în profilul tău de client.</div>
-        <button style={S.btn("ghost")} onClick={()=>supabase.auth.signOut()}>⏻ Deconectare</button>
-      </div>
-    );
+    return <UnlinkedScreen user={user} profile={profile}/>;
   }
 
   const sessionDates=(clientCard?.history||[]).filter(h=>h.type==="session").map(h=>h.date);
