@@ -161,7 +161,7 @@ function MiniCalendar({sessionDates=[],paymentDates=[]}){
 }
 
 // ─── GLOBAL CALENDAR ─────────────────────────────────────────────────────────
-function GlobalCalendar({clients}){
+function GlobalCalendar({clients,onQuickAddSession}){
   const now=new Date();
   const[vy,setVy]=useState(now.getFullYear());
   const[vm,setVm]=useState(now.getMonth());
@@ -178,7 +178,7 @@ function GlobalCalendar({clients}){
   const cells=[];for(let i=0;i<fd;i++)cells.push(null);for(let d=1;d<=dim;d++)cells.push(d);
   const monthSessions=Object.values(dayMap).flat().filter(e=>e.type==="session").length;
   const monthIncome=clients.flatMap(c=>(c.history||[]).filter(h=>{const[y,m]=h.date.split("-").map(Number);return y===vy&&m-1===vm&&h.type==="payment";}).map(h=>Number(h.amount||0))).reduce((a,b)=>a+b,0);
-  const selEvents=selDay?(dayMap[selDay]||[]):[];
+  const selEvents=selDay?(dayMap[selDay]||[]).slice().sort((a,b)=>(a.time||"00:00").localeCompare(b.time||"00:00")):[];
   return(
     <div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
@@ -188,7 +188,7 @@ function GlobalCalendar({clients}){
       <div style={{background:CARD2,borderRadius:14,padding:14,border:`1px solid ${BORDER}`,marginBottom:14}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
           <button onClick={prev} style={{background:"none",border:"none",color:MUTED,cursor:"pointer",fontSize:20,padding:"2px 8px"}}>‹</button>
-          <div style={{fontSize:15,fontWeight:800,color:TEXT}}>{MONTH_NAMES[vm]} {vy}</div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}><div style={{fontSize:15,fontWeight:800,color:TEXT}}>{MONTH_NAMES[vm]} {vy}</div><button onClick={()=>onQuickAddSession&&onQuickAddSession(selDay?`${vy}-${String(vm+1).padStart(2,"0")}-${String(selDay).padStart(2,"0")}`:null)} style={{background:`${ACCENT}20`,border:`1px solid ${ACCENT}40`,borderRadius:8,padding:"3px 10px",color:ACCENT,cursor:"pointer",fontSize:12,fontWeight:700,fontFamily:"'DM Sans',sans-serif"}}>+ Ședință</button></div>
           <button onClick={next} style={{background:"none",border:"none",color:MUTED,cursor:"pointer",fontSize:20,padding:"2px 8px"}}>›</button>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:6}}>{DAY_NAMES.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:MUTED}}>{d}</div>)}</div>
@@ -461,7 +461,7 @@ function ProfileView({user,profile,setProfile}){
 // ─── TRAINER APP ──────────────────────────────────────────────────────────────
 function TrainerApp({user,profile,setProfile}){
   const[clients,setClients,dbLoading]=useStorage(user);
-  const[view,setView]=useState("clients");
+  const[view,setView]=useState("welcome");
   const[drawerOpen,setDrawerOpen]=useState(false);
   const[modal,setModal]=useState(null);
   const[editForm,setEditForm]=useState(null);
@@ -504,12 +504,21 @@ function TrainerApp({user,profile,setProfile}){
     setModal(null);
   }
   function deleteEntry(clientId,entryId){
-    setClients(prev=>prev.map(c=>{if(c.id!==clientId)return c;const entry=(c.history||[]).find(h=>h.id===entryId);return{...c,sessionsLeft:(c.sessionsLeft||0)+(entry?.type==="session"?1:0),history:(c.history||[]).filter(h=>h.id!==entryId)};}));
+    setClients(prev=>prev.map(c=>{
+      if(c.id!==clientId)return c;
+      const newHistory=(c.history||[]).filter(h=>h.id!==entryId);
+      // Recalculate sessionsLeft from scratch: payments add sessions, sessions subtract
+      const paidSessions=newHistory.filter(h=>h.type==="payment").reduce((s,h)=>s+Number(h.sessions||0),0);
+      const usedSessions=newHistory.filter(h=>h.type==="session").length;
+      const newSessionsLeft=Math.max(0,paidSessions-usedSessions);
+      const newTotalSessions=paidSessions;
+      return{...c,sessionsLeft:newSessionsLeft,totalSessions:newTotalSessions,history:newHistory};
+    }));
     setDeleteConfirm(null);
   }
 
   const client=selClient?clients.find(c=>c.id===selClient):null;
-  const navItems=[["clients","👥","Clienți"],["calendar","📅","Calendar"],["today","⚡","Azi"],["summary","📊","Sumar"],["profile","👤","Profil"]];
+  const navItems=[["welcome","🏠","Acasă"],["clients","👥","Clienți"],["calendar","📅","Calendar"],["today","⚡","Azi"],["summary","📊","Sumar"],["profile","👤","Profil"]];
 
   const viewTitle=selClient&&client?client.name:navItems.find(([v])=>v===view)?.[2]||"";
 
@@ -533,6 +542,72 @@ function TrainerApp({user,profile,setProfile}){
       </div>
 
       <div style={S.main}>
+        {/* WELCOME VIEW */}
+        {view==="welcome"&&(()=>{
+          const trainerName=profile?.name||user?.email?.split("@")[0]||"Antrenor";
+          const ts2=today();
+          const todaySessionsAll=clients.flatMap(c=>(c.history||[]).filter(h=>h.type==="session"&&h.date===ts2).map(h=>({...h,clientName:c.name,sessionPrice:c.sessionPrice||0}))).sort((a,b)=>(a.time||"00:00").localeCompare(b.time||"00:00"));
+          const paymentsDue=clients.filter(c=>{const d=daysUntil(c.nextDue);return d!==null&&d<=5&&d>=0;});
+          const overdueClients=clients.filter(c=>{const d=daysUntil(c.nextDue);return d!==null&&d<0;});
+          return(
+            <>
+              {/* Greeting */}
+              <div style={{background:`linear-gradient(135deg,${CARD},${CARD2})`,borderRadius:20,padding:"20px 18px",border:`1px solid ${BORDER}`,marginBottom:14}}>
+                <div style={{fontSize:13,color:MUTED,fontWeight:600,marginBottom:4}}>Bună ziua,</div>
+                <div style={{fontSize:22,fontWeight:900,color:TEXT,letterSpacing:"-0.5px"}}>{trainerName} 💪</div>
+                <div style={{fontSize:12,color:MUTED,marginTop:4}}>{new Date().toLocaleDateString("ro-RO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+              </div>
+
+              {/* Today sessions */}
+              <div style={S.sTitle}>Azi — {todaySessionsAll.length} ședință{todaySessionsAll.length!==1?"e":""}</div>
+              {todaySessionsAll.length===0
+                ?<div style={{...S.card,color:MUTED,fontSize:13}}>Nicio ședință programată azi</div>
+                :todaySessionsAll.map(s=>(
+                  <div key={s.id} style={{...S.card,padding:"12px 14px",marginBottom:8}}>
+                    <div style={S.sb}>
+                      <div style={S.row}>
+                        <div style={{width:36,height:36,borderRadius:10,background:`${ACCENT}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🏋️</div>
+                        <div><div style={{fontSize:14,fontWeight:700}}>{s.clientName}</div><div style={{fontSize:12,color:MUTED}}>{s.time||"—"}</div></div>
+                      </div>
+                      {s.sessionPrice>0&&<span style={S.badge(ACCENT,`${ACCENT}20`)}>{s.sessionPrice} RON</span>}
+                    </div>
+                  </div>
+                ))
+              }
+
+              {/* Payment reminders */}
+              {(paymentsDue.length>0||overdueClients.length>0)&&(
+                <>
+                  <div style={S.sTitle}>⚠️ Remindere plăți</div>
+                  {overdueClients.map(c=>{const d=daysUntil(c.nextDue);return(
+                    <div key={c.id} style={{...S.card,padding:"12px 14px",marginBottom:8,border:`1px solid ${ACCENT2}40`}}>
+                      <div style={S.sb}>
+                        <div style={S.row}><span style={{fontSize:16}}>🔴</span><div><div style={{fontSize:14,fontWeight:700}}>{c.name}</div><div style={{fontSize:12,color:ACCENT2}}>{Math.abs(d)} zile întârziere</div></div></div>
+                        <button style={S.btn("ghost")} onClick={()=>{setSelClient(c.id);setView("clients");}}>Vezi →</button>
+                      </div>
+                    </div>
+                  );})}
+                  {paymentsDue.map(c=>{const d=daysUntil(c.nextDue);return(
+                    <div key={c.id} style={{...S.card,padding:"12px 14px",marginBottom:8,border:`1px solid #FFB74D40`}}>
+                      <div style={S.sb}>
+                        <div style={S.row}><span style={{fontSize:16}}>🟡</span><div><div style={{fontSize:14,fontWeight:700}}>{c.name}</div><div style={{fontSize:12,color:"#FFB74D"}}>Scade în {d} zile</div></div></div>
+                        <button style={S.btn("ghost")} onClick={()=>{setSelClient(c.id);setView("clients");}}>Vezi →</button>
+                      </div>
+                    </div>
+                  );})}
+                </>
+              )}
+
+              {/* Quick stats */}
+              <div style={S.sTitle}>Rezumat</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                <div style={S.statBox}><div style={{fontSize:22,fontWeight:900,color:ACCENT}}>{clients.length}</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",marginTop:2}}>Clienți activi</div></div>
+                <div style={S.statBox}><div style={{fontSize:22,fontWeight:900,color:"#A29BFE"}}>{todayIncome} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase",marginTop:2}}>Câștig azi</div></div>
+              </div>
+            </>
+          );
+        })()}
+
         {/* CLIENTS LIST */}
         {view==="clients"&&!selClient&&(
           <>{clients.length===0&&<div style={{textAlign:"center",padding:"48px 24px",color:MUTED}}><div style={{fontSize:48,marginBottom:12}}>🏋️</div><div style={{fontWeight:700,fontSize:16,marginBottom:6}}>Niciun client încă</div><div style={{fontSize:14}}>Apasă "+ Client" pentru a începe</div></div>}
@@ -618,7 +693,7 @@ function TrainerApp({user,profile,setProfile}){
           );
         })()}
 
-        {view==="calendar"&&(<><div style={S.sTitle}>📅 Calendar general</div>{clients.length===0?<div style={{textAlign:"center",padding:"48px 20px",color:MUTED}}><div style={{fontSize:42,marginBottom:10}}>📅</div><div style={{fontSize:14}}>Adaugă clienți pentru a vedea calendarul</div></div>:<GlobalCalendar clients={clients}/>}</>)}
+        {view==="calendar"&&(<><div style={S.sTitle}>📅 Calendar general</div>{clients.length===0?<div style={{textAlign:"center",padding:"48px 20px",color:MUTED}}><div style={{fontSize:42,marginBottom:10}}>📅</div><div style={{fontSize:14}}>Adaugă clienți pentru a vedea calendarul</div></div>:<GlobalCalendar clients={clients} onQuickAddSession={(date)=>{setModal({type:"quickSession",date:date||today()});}}/>}</>)}
 
         {view==="today"&&(
           <>
@@ -745,6 +820,39 @@ function TrainerApp({user,profile,setProfile}){
           </div>
         </div>
       )}
+
+      {/* QUICK SESSION FROM CALENDAR */}
+      {modal?.type==="quickSession"&&(()=>{
+        const[qClient,setQClient]=useState("");
+        const[qDate,setQDate]=useState(modal.date||today());
+        const[qTime,setQTime]=useState(nowTime());
+        return(
+          <div style={S.modal} onClick={()=>setModal(null)}>
+            <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
+              <div style={{fontSize:18,fontWeight:800,marginBottom:16}}>⚡ Adaugă ședință rapidă</div>
+              <label style={S.label}>Client</label>
+              <select style={{...S.input,marginBottom:12,appearance:"none"}} value={qClient} onChange={e=>setQClient(e.target.value)}>
+                <option value="">Alege client...</option>
+                {clients.map(c=><option key={c.id} value={c.id}>{c.name} ({c.sessionsLeft??0} rămase)</option>)}
+              </select>
+              <label style={S.label}>📅 Data</label>
+              <input type="date" style={{...S.input,marginBottom:12,colorScheme:"dark"}} value={qDate} onChange={e=>setQDate(e.target.value)}/>
+              <label style={S.label}>🕐 Ora</label>
+              <input type="time" style={{...S.input,marginBottom:18,colorScheme:"dark"}} value={qTime} onChange={e=>setQTime(e.target.value)}/>
+              <div style={{display:"flex",gap:8}}>
+                <button style={{...S.btn(),flex:1}} onClick={()=>setModal(null)}>Anulează</button>
+                <button style={{...S.btn("primary"),flex:2}} disabled={!qClient||!qDate} onClick={()=>{
+                  setClients(prev=>prev.map(c=>{
+                    if(c.id!==qClient)return c;
+                    return{...c,sessionsLeft:Math.max(0,(c.sessionsLeft||0)-1),history:[...(c.history||[]),{id:crypto.randomUUID(),type:"session",date:qDate,time:qTime,sessionPrice:c.sessionPrice||0,note:"Ședință completată"}]};
+                  }));
+                  setModal(null);
+                }}>✅ Confirmă</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -753,7 +861,7 @@ function TrainerApp({user,profile,setProfile}){
 function ClientApp({user,profile,setProfile,clientCard}){
   const[view,setView]=useState("dashboard");
   const[drawerOpen,setDrawerOpen]=useState(false);
-  const navItems=[["dashboard","🏠","Acasă"],["calendar","📅","Calendar"],["measures","📏","Măsurători"],["photos","📸","Poze"],["profile","👤","Profil"]];
+  const navItems=[["welcome","🏠","Acasă"],["calendar","📅","Calendar"],["measures","📏","Măsurători"],["photos","📸","Poze"],["profile","👤","Profil"]];
 
   if(!clientCard&&profile?.role==="client"){
     return(
@@ -787,8 +895,21 @@ function ClientApp({user,profile,setProfile,clientCard}){
       </div>
 
       <div style={S.main}>
-        {view==="dashboard"&&(
+        {view==="welcome"&&(
           <>
+            {/* Client greeting */}
+            <div style={{background:`linear-gradient(135deg,${CARD},${CARD2})`,borderRadius:20,padding:"20px 18px",border:`1px solid ${BORDER}`,marginBottom:14}}>
+              <div style={{fontSize:13,color:MUTED,fontWeight:600,marginBottom:4}}>Bună ziua,</div>
+              <div style={{fontSize:22,fontWeight:900,color:TEXT,letterSpacing:"-0.5px"}}>{profile?.name||user?.email?.split("@")[0]} 👋</div>
+              <div style={{fontSize:12,color:MUTED,marginTop:4}}>{new Date().toLocaleDateString("ro-RO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+            </div>
+            {/* Today session for client */}
+            {(()=>{const todaySessClient=(clientCard?.history||[]).filter(h=>h.type==="session"&&h.date===today()).sort((a,b)=>(a.time||"00:00").localeCompare(b.time||"00:00"));return todaySessClient.length>0&&(
+              <div style={{...S.card,marginBottom:14,border:`1px solid ${ACCENT}40`}}>
+                <div style={{fontSize:11,color:ACCENT,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px",marginBottom:8}}>Azi ai {todaySessClient.length} ședință{todaySessClient.length!==1?"e":""}</div>
+                {todaySessClient.map(s=><div key={s.id} style={{fontSize:14,fontWeight:700,color:TEXT}}>{s.time||"—"}</div>)}
+              </div>
+            );})()}
             <div style={S.sTitle}>Rezumatul tău</div>
             <div style={{background:`linear-gradient(135deg,${ACCENT}20,${ACCENT}08)`,border:`1px solid ${ACCENT}40`,borderRadius:20,padding:"24px 20px",marginBottom:12,textAlign:"center"}}>
               <div style={{fontSize:64,fontWeight:900,color:ACCENT,lineHeight:1}}>{clientCard?.sessionsLeft??0}</div>
