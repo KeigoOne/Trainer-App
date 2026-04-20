@@ -935,10 +935,13 @@ function UnlinkedScreen({user,profile}){
 }
 
 // ─── CLIENT APP ───────────────────────────────────────────────────────────────
-function ClientApp({user,profile,setProfile,clientCard}){
-  const[view,setView]=useState("dashboard");
+function ClientApp({user,profile,setProfile,clientCard,refreshClientCard}){
+  const[view,setView]=useState("welcome");
   const[drawerOpen,setDrawerOpen]=useState(false);
   const navItems=[["welcome","🏠","Acasă"],["calendar","📅","Calendar"],["measures","📏","Măsurători"],["photos","📸","Poze"],["profile","👤","Profil"]];
+
+  // Refresh client card on mount to always show latest data
+  useEffect(()=>{ if(refreshClientCard) refreshClientCard(); },[]);
 
   if(!clientCard&&profile?.role==="client"){
     return <UnlinkedScreen user={user} profile={profile}/>;
@@ -1135,15 +1138,19 @@ export default function Root(){
     return()=>subscription.unsubscribe();
   },[]);
 
+  async function refreshClientCard(){
+    const{data:rpcData}=await supabase.rpc("get_client_card");
+    if(rpcData?.found)setClientCard(rpcData.data);
+    return rpcData?.found??false;
+  }
+
   useEffect(()=>{
     if(!user)return;
     setProfileLoading(true);
     supabase.from("profiles").select("*").eq("id",user.id).single().then(async({data:prof})=>{
       setProfile(prof);
       if(prof?.role==="client"){
-        // Use RPC to bypass RLS — function verifies identity server-side
-        const{data:rpcData}=await supabase.rpc("get_client_card");
-        if(rpcData?.found){setClientCard(rpcData.data);}
+        await refreshClientCard();
       }
       setProfileLoading(false);
     });
@@ -1156,7 +1163,7 @@ export default function Root(){
   if(!user)return<AuthScreen onAuth={()=>supabase.auth.getUser().then(({data:{user}})=>setUser(user))}/>;
   // If profile not loaded yet, keep showing loading spinner
   if(!profile)return(<div style={{minHeight:"100vh",background:BG,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans',sans-serif"}}><div style={{fontSize:40,marginBottom:16}}>💪</div><div style={{color:ACCENT,fontSize:14,fontWeight:700}}>Se încarcă profilul...</div><button style={{marginTop:24,background:"transparent",border:`1px solid ${BORDER}`,borderRadius:9,padding:"8px 16px",color:MUTED,cursor:"pointer",fontSize:13,fontFamily:"'DM Sans',sans-serif"}} onClick={()=>supabase.auth.signOut()}>Deconectare</button></div>);
-  if(profile.role==="client")return<ClientApp user={user} profile={profile} setProfile={setProfile} clientCard={clientCard}/>;
+  if(profile.role==="client")return<ClientApp user={user} profile={profile} setProfile={setProfile} clientCard={clientCard} refreshClientCard={refreshClientCard}/>;
   if(profile.role==="trainer"||profile.role==="admin")return<TrainerApp user={user} profile={profile} setProfile={setProfile}/>;
   // Unknown role - show logout
   return(<div style={{minHeight:"100vh",background:BG,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans',sans-serif"}}><div style={{fontSize:40,marginBottom:16}}>⚠️</div><div style={{color:ACCENT2,fontSize:14,fontWeight:700,marginBottom:16}}>Rol necunoscut: {profile.role}</div><button style={{background:"transparent",border:`1px solid ${BORDER}`,borderRadius:9,padding:"8px 16px",color:MUTED,cursor:"pointer",fontSize:13,fontFamily:"'DM Sans',sans-serif"}} onClick={()=>supabase.auth.signOut()}>Deconectare</button></div>);
