@@ -990,12 +990,15 @@ function AuthScreen({onAuth}){
           trainerId=trainerProfile.id;
         }
         // All validation passed — now create the account
-        const{data,error}=await supabase.auth.signUp({email,password,options:{data:{name,role}}});
+        // Profile is created automatically by DB trigger on auth.users insert
+        const{data,error}=await supabase.auth.signUp({email,password,options:{data:{name,role,trainer_id:trainerId}}});
         if(error)throw error;
-        const joinCode=role==="trainer"?genCode():null;
-        await supabase.from("profiles").insert({id:data.user.id,role,name,trainer_id:trainerId,join_code:joinCode});
+        // Small delay to let the trigger create the profile first
+        await new Promise(r=>setTimeout(r,1000));
         if(role==="client"&&trainerId){
           await supabase.from("clients").update({client_user_id:data.user.id}).eq("client_email",email).eq("user_id",trainerId);
+          // Update trainer_id in profile now that it exists
+          await supabase.from("profiles").update({trainer_id:trainerId}).eq("id",data.user.id);
         }
         setSuccess(role==="trainer"?"Cont antrenor creat! Verifică emailul pentru confirmare.":"Cont client creat! Verifică emailul pentru confirmare.");
       }
