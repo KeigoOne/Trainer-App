@@ -767,10 +767,10 @@ function ClientApp({user,profile,setProfile,clientCard}){
     );
   }
 
-  const sessionDates=(clientCard.history||[]).filter(h=>h.type==="session").map(h=>h.date);
-  const paymentDates=(clientCard.history||[]).filter(h=>h.type==="payment").map(h=>h.date);
-  const lastSession=[...(clientCard.history||[])].filter(h=>h.type==="session").sort((a,b)=>b.date.localeCompare(a.date))[0];
-  const days=daysUntil(clientCard.nextDue),overdue=days!==null&&days<0;
+  const sessionDates=(clientCard?.history||[]).filter(h=>h.type==="session").map(h=>h.date);
+  const paymentDates=(clientCard?.history||[]).filter(h=>h.type==="payment").map(h=>h.date);
+  const lastSession=[...(clientCard?.history||[])].filter(h=>h.type==="session").sort((a,b)=>b.date.localeCompare(a.date))[0];
+  const days=daysUntil(clientCard?.nextDue),overdue=days!==null&&days<0;
   const viewTitle=navItems.find(([v])=>v===view)?.[2]||"";
 
   return(
