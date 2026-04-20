@@ -755,7 +755,7 @@ function ClientApp({user,profile,setProfile,clientCard}){
   const[drawerOpen,setDrawerOpen]=useState(false);
   const navItems=[["dashboard","🏠","Acasă"],["calendar","📅","Calendar"],["measures","📏","Măsurători"],["photos","📸","Poze"],["profile","👤","Profil"]];
 
-  if(!clientCard){
+  if(!clientCard&&profile?.role==="client"){
     return(
       <div style={{...S.app,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,textAlign:"center"}}>
         <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet"/>
