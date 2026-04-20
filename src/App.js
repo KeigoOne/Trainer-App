@@ -658,8 +658,9 @@ function ClientBookingView({user,profile}){
     // Check spots
     const{data:existing}=await supabase.from("bookings").select("id").eq("slot_id",slot.id).eq("booking_date",date).eq("status","confirmed");
     if(existing&&existing.length>=slot.max_bookings){setMsg("Nu mai sunt locuri disponibile pentru această dată.");return;}
+    const trainerId=profile?.trainer_id||slot.trainer_id;
     const{data,error}=await supabase.from("bookings").insert({
-      slot_id:slot.id,trainer_id:profile.trainer_id,client_id:user.id,
+      slot_id:slot.id,trainer_id:trainerId,client_id:user.id,
       client_name:profile.name||user.email,booking_date:date,status:"confirmed"
     }).select().single();
     if(!error&&data){setMyBookings(p=>[...p,data]);setBooking(null);setMsg("Rezervare confirmată! ✅");}
@@ -855,7 +856,8 @@ function TrainerApp({user,profile,setProfile}){
               <div style={{background:`linear-gradient(135deg,${CARD},${CARD2})`,borderRadius:20,padding:"20px 18px",border:`1px solid ${BORDER}`,marginBottom:14}}>
                 <div style={{fontSize:13,color:MUTED,fontWeight:600,marginBottom:4}}>Bună ziua,</div>
                 <div style={{fontSize:22,fontWeight:900,color:TEXT,letterSpacing:"-0.5px"}}>{trainerName} 💪</div>
-                <div style={{fontSize:12,color:MUTED,marginTop:4,marginBottom:12}}>{new Date().toLocaleDateString("ro-RO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+                <div style={{fontSize:12,color:MUTED,marginTop:4,marginBottom:trainerName?6:12}}>{new Date().toLocaleDateString("ro-RO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+              {trainerName&&<div style={{fontSize:12,color:ACCENT,fontWeight:700,marginBottom:12}}>🏋️ Antrenor: {trainerName}</div>}
                 <div style={{borderTop:`1px solid ${BORDER}`,paddingTop:12,marginTop:4}}>
                   <div style={{fontSize:13,fontStyle:"italic",color:TEXT,lineHeight:1.5}}>"{q.text}"</div>
                   {q.author&&<div style={{fontSize:11,color:MUTED,marginTop:4,fontWeight:600}}>— {q.author}</div>}
@@ -1207,6 +1209,13 @@ function ClientApp({user,profile,setProfile,clientCard,refreshClientCard}){
     return <UnlinkedScreen user={user} profile={profile}/>;
   }
 
+  const[trainerName,setTrainerName]=useState("");
+  useEffect(()=>{
+    if(!profile?.trainer_id)return;
+    supabase.from("profiles").select("name").eq("id",profile.trainer_id).single()
+      .then(({data})=>{ if(data?.name) setTrainerName(data.name); });
+  },[profile?.trainer_id]);
+
   const sessionDates=(clientCard?.history||[]).filter(h=>h.type==="session").map(h=>h.date);
   const paymentDates=(clientCard?.history||[]).filter(h=>h.type==="payment").map(h=>h.date);
   const lastSession=[...(clientCard?.history||[])].filter(h=>h.type==="session").sort((a,b)=>b.date.localeCompare(a.date))[0];
@@ -1236,7 +1245,8 @@ function ClientApp({user,profile,setProfile,clientCard,refreshClientCard}){
             <div style={{background:`linear-gradient(135deg,${CARD},${CARD2})`,borderRadius:20,padding:"20px 18px",border:`1px solid ${BORDER}`,marginBottom:14}}>
               <div style={{fontSize:13,color:MUTED,fontWeight:600,marginBottom:4}}>Bună ziua,</div>
               <div style={{fontSize:22,fontWeight:900,color:TEXT,letterSpacing:"-0.5px"}}>{profile?.name||user?.email?.split("@")[0]} 👋</div>
-              <div style={{fontSize:12,color:MUTED,marginTop:4,marginBottom:12}}>{new Date().toLocaleDateString("ro-RO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+              <div style={{fontSize:12,color:MUTED,marginTop:4,marginBottom:trainerName?6:12}}>{new Date().toLocaleDateString("ro-RO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
+              {trainerName&&<div style={{fontSize:12,color:ACCENT,fontWeight:700,marginBottom:12}}>🏋️ Antrenor: {trainerName}</div>}
               <div style={{borderTop:`1px solid ${BORDER}`,paddingTop:12,marginTop:4}}>
                 <div style={{fontSize:13,fontStyle:"italic",color:TEXT,lineHeight:1.5}}>"{q.text}"</div>
                 {q.author&&<div style={{fontSize:11,color:MUTED,marginTop:4,fontWeight:600}}>— {q.author}</div>}
