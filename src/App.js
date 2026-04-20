@@ -888,15 +888,19 @@ function UnlinkedScreen({user,profile}){
     setRetrying(true);setMsg("");
     try{
       // Try to find client card by email
-      const{data:byEmail}=await supabase.from("clients").select("id,data,user_id").eq("client_email",user.email).maybeSingle();
+      const{data:byEmail,error:findErr}=await supabase.from("clients").select("id,data,user_id").eq("client_email",user.email).maybeSingle();
+      console.log("FIND RESULT:",byEmail,"ERROR:",findErr);
       if(!byEmail){setMsg("Antrenorul nu a adăugat încă emailul tău. Încearcă din nou mai târziu.");setRetrying(false);return;}
       // Link it
-      await supabase.from("clients").update({client_user_id:user.id}).eq("id",byEmail.id);
+      const{error:updateErr}=await supabase.from("clients").update({client_user_id:user.id}).eq("id",byEmail.id);
+      console.log("UPDATE ERROR:",updateErr);
+      if(updateErr){setMsg("Eroare update: "+updateErr.message);setRetrying(false);return;}
       // Also update trainer_id in profile
-      await supabase.from("profiles").update({trainer_id:byEmail.user_id}).eq("id",user.id);
+      const{error:profErr}=await supabase.from("profiles").update({trainer_id:byEmail.user_id}).eq("id",user.id);
+      console.log("PROFILE UPDATE ERROR:",profErr);
       setMsg("Cont legat cu succes! Se reîncarcă...");
       setTimeout(()=>window.location.reload(),1500);
-    }catch(e){setMsg("Eroare: "+e.message);}
+    }catch(e){console.log("CATCH:",e);setMsg("Eroare: "+e.message);}
     setRetrying(false);
   }
 
