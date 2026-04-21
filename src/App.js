@@ -1573,6 +1573,21 @@ function AuthScreen({onAuth}){
   const[loading,setLoading]=useState(false);
   const[error,setError]=useState("");
   const[success,setSuccess]=useState("");
+  const[showForgot,setShowForgot]=useState(false);
+  const[forgotEmail,setForgotEmail]=useState("");
+  const[forgotLoading,setForgotLoading]=useState(false);
+  const[forgotMsg,setForgotMsg]=useState("");
+
+  async function handleForgot(){
+    if(!forgotEmail.trim()){setForgotMsg("Introduceți adresa de email.");return;}
+    setForgotLoading(true);setForgotMsg("");
+    const{error}=await supabase.auth.resetPasswordForEmail(forgotEmail.trim(),{
+      redirectTo:window.location.origin
+    });
+    if(error)setForgotMsg("Eroare: "+error.message);
+    else setForgotMsg("Email trimis! Verifică căsuța de email pentru link-ul de resetare.");
+    setForgotLoading(false);
+  }
 
   async function handleSubmit(){
     setError("");setSuccess("");setLoading(true);
@@ -1648,6 +1663,11 @@ function AuthScreen({onAuth}){
           <input type="email" style={inputStyle} placeholder="exemplu@email.com" value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
           <label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Parolă</label>
           <input type="password" style={inputStyle} placeholder="Minim 6 caractere" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleSubmit()}/>
+          {mode==="login"&&(
+            <div style={{textAlign:"right",marginTop:-6,marginBottom:10}}>
+              <button onClick={()=>{setShowForgot(true);setForgotEmail(email);setForgotMsg("");}} style={{background:"none",border:"none",color:MUTED,fontSize:12,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",textDecoration:"underline",padding:0}}>Ai uitat parola?</button>
+            </div>
+          )}
           {mode==="register"&&role==="trainer"&&(
             <div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:10,padding:"10px 14px",fontSize:13,color:ACCENT,marginBottom:12}}>
               ℹ️ Contul de antrenor va fi aprobat automat de sistem.
@@ -1671,6 +1691,81 @@ function AuthScreen({onAuth}){
           </button>
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      {showForgot&&(
+        <div style={{position:"fixed",inset:0,background:"#000000CC",display:"flex",alignItems:"center",justifyContent:"center",zIndex:999,backdropFilter:"blur(4px)",padding:16}}>
+          <div style={{background:CARD,borderRadius:20,padding:"28px 24px",width:"100%",maxWidth:400,border:`1px solid ${BORDER}`}}>
+            <div style={{fontSize:18,fontWeight:800,marginBottom:6,color:TEXT}}>🔐 Resetează parola</div>
+            <div style={{fontSize:13,color:MUTED,marginBottom:18}}>Trimitem un link de resetare pe emailul tău.</div>
+            <label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Email</label>
+            <input type="email" style={{...inputStyle,marginBottom:12}} placeholder="exemplu@email.com" value={forgotEmail} onChange={e=>setForgotEmail(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleForgot()}/>
+            {forgotMsg&&<div style={{background:forgotMsg.includes("Eroare")?`${ACCENT2}15`:`${ACCENT}15`,border:`1px solid ${forgotMsg.includes("Eroare")?ACCENT2:ACCENT}40`,borderRadius:10,padding:"10px 14px",fontSize:13,color:forgotMsg.includes("Eroare")?ACCENT2:ACCENT,marginBottom:12}}>{forgotMsg}</div>}
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setShowForgot(false)} style={{flex:1,background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px",color:TEXT,fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:700,cursor:"pointer"}}>Anulează</button>
+              <button onClick={handleForgot} disabled={forgotLoading} style={{flex:2,background:ACCENT,border:"none",borderRadius:10,padding:"12px",color:"#000",fontFamily:"'DM Sans',sans-serif",fontSize:14,fontWeight:800,cursor:forgotLoading?"not-allowed":"pointer",opacity:forgotLoading?0.6:1}}>
+                {forgotLoading?"Se trimite...":"Trimite link"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── RESET PASSWORD SCREEN ───────────────────────────────────────────────────
+function ResetPasswordScreen({onDone}){
+  const[password,setPassword]=useState("");
+  const[confirm,setConfirm]=useState("");
+  const[loading,setLoading]=useState(false);
+  const[error,setError]=useState("");
+  const[success,setSuccess]=useState(false);
+
+  async function handleReset(){
+    setError("");
+    if(!isStrongPassword(password)){setError("Parola trebuie să aibă minim 8 caractere, o literă mare și o cifră.");return;}
+    if(password!==confirm){setError("Parolele nu se potrivesc.");return;}
+    setLoading(true);
+    const{error}=await supabase.auth.updateUser({password});
+    if(error)setError("Eroare: "+error.message);
+    else setSuccess(true);
+    setLoading(false);
+  }
+
+  return(
+    <div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'DM Sans',sans-serif"}}>
+      <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
+      <div style={{width:"100%",maxWidth:400}}>
+        <div style={{textAlign:"center",marginBottom:32}}>
+          <div style={{width:60,height:60,borderRadius:16,background:`linear-gradient(135deg,${ACCENT},#00B87A)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:30,margin:"0 auto 14px"}}>🔐</div>
+          <div style={{fontSize:24,fontWeight:900,color:TEXT}}>Parolă nouă</div>
+          <div style={{fontSize:13,color:MUTED,marginTop:4}}>Alege o parolă nouă pentru contul tău</div>
+        </div>
+        <div style={{background:CARD,borderRadius:20,padding:"28px 24px",border:`1px solid ${BORDER}`}}>
+          {success?(
+            <>
+              <div style={{textAlign:"center",padding:"16px 0"}}>
+                <div style={{fontSize:48,marginBottom:12}}>✅</div>
+                <div style={{fontSize:16,fontWeight:700,color:TEXT,marginBottom:8}}>Parolă schimbată!</div>
+                <div style={{fontSize:13,color:MUTED,marginBottom:20}}>Te poți conecta acum cu noua parolă.</div>
+                <button onClick={onDone} style={{background:ACCENT,border:"none",borderRadius:12,padding:"12px 24px",color:"#000",fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:800,cursor:"pointer"}}>Intră în cont</button>
+              </div>
+            </>
+          ):(
+            <>
+              <label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Parolă nouă</label>
+              <input type="password" style={{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:12,fontFamily:"'DM Sans',sans-serif"}} placeholder="Minim 8 caractere" value={password} onChange={e=>setPassword(e.target.value)}/>
+              <label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>Confirmă parola</label>
+              <input type="password" style={{width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:16,fontFamily:"'DM Sans',sans-serif"}} placeholder="Repetă parola" value={confirm} onChange={e=>setConfirm(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleReset()}/>
+              {error&&<div style={{background:`${ACCENT2}15`,border:`1px solid ${ACCENT2}40`,borderRadius:10,padding:"10px 14px",fontSize:13,color:ACCENT2,marginBottom:14}}>⚠ {error}</div>}
+              <button onClick={handleReset} disabled={loading||!password||!confirm} style={{width:"100%",background:ACCENT,border:"none",borderRadius:12,padding:"14px",color:"#000",fontFamily:"'DM Sans',sans-serif",fontSize:15,fontWeight:800,cursor:loading?"not-allowed":"pointer",opacity:loading||!password||!confirm?0.6:1}}>
+                {loading?"Se salvează...":"Salvează parola"}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1681,10 +1776,15 @@ export default function Root(){
   const[profile,setProfile]=useState(null);
   const[clientCard,setClientCard]=useState(null);
   const[profileLoading,setProfileLoading]=useState(false);
+  const[isResettingPassword,setIsResettingPassword]=useState(false);
 
   useEffect(()=>{
     supabase.auth.getUser().then(({data:{user}})=>setUser(user??null));
-    const{data:{subscription}}=supabase.auth.onAuthStateChange((_,session)=>{
+    const{data:{subscription}}=supabase.auth.onAuthStateChange((event,session)=>{
+      if(event==="PASSWORD_RECOVERY"){
+        setIsResettingPassword(true);
+        return;
+      }
       setUser(session?.user??null);
       if(!session){setProfile(null);setClientCard(null);}
     });
@@ -1718,6 +1818,7 @@ export default function Root(){
     return(<div style={{minHeight:"100vh",background:BG,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans',sans-serif"}}><div style={{fontSize:40,marginBottom:16}}>💪</div><div style={{color:ACCENT,fontSize:14,fontWeight:700}}>Se încarcă...</div></div>);
   }
 
+  if(isResettingPassword)return<ResetPasswordScreen onDone={()=>{setIsResettingPassword(false);supabase.auth.signOut();}}/>;
   if(!user)return<AuthScreen onAuth={()=>supabase.auth.getUser().then(({data:{user}})=>setUser(user))}/>;
   // If profile not loaded yet, keep showing loading spinner
   if(!profile)return(<div style={{minHeight:"100vh",background:BG,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"'DM Sans',sans-serif"}}><div style={{fontSize:40,marginBottom:16}}>💪</div><div style={{color:ACCENT,fontSize:14,fontWeight:700}}>Se încarcă profilul...</div><button style={{marginTop:24,background:"transparent",border:`1px solid ${BORDER}`,borderRadius:9,padding:"8px 16px",color:MUTED,cursor:"pointer",fontSize:13,fontFamily:"'DM Sans',sans-serif"}} onClick={()=>supabase.auth.signOut()}>Deconectare</button></div>);
