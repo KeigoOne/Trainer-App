@@ -518,23 +518,23 @@ function ClientBookingsSection({clientId, trainerId}){
   const[clientUserId,setClientUserId]=useState(null);
 
   useEffect(()=>{
-    // Step 1: get client_user_id from clients table
-    supabase.from("clients").select("client_user_id").eq("id",clientId).single()
-      .then(({data})=>{
-        if(data?.client_user_id){
-          setClientUserId(data.client_user_id);
-          // Step 2: fetch bookings for this client
-          supabase.from("bookings")
-            .select("*,time_slots(start_time,end_time,day_of_week,repeat,specific_date)")
-            .eq("client_id",data.client_user_id)
-            .eq("trainer_id",trainerId)
-            .eq("status","confirmed")
-            .order("booking_date",{ascending:true})
-            .then(({data:b})=>{ if(b)setBookings(b); setLoading(false); });
-        } else {
-          setLoading(false);
-        }
-      });
+    async function load(){
+      console.log("ClientBookingsSection - clientId:",clientId,"trainerId:",trainerId);
+      const{data:cData,error:cErr}=await supabase.from("clients").select("client_user_id").eq("id",clientId).single();
+      console.log("Step1 - client row:",cData,"error:",cErr?.message);
+      if(!cData?.client_user_id){setLoading(false);return;}
+      setClientUserId(cData.client_user_id);
+      const{data:b,error:bErr}=await supabase.from("bookings")
+        .select("*,time_slots(start_time,end_time,day_of_week,repeat,specific_date)")
+        .eq("client_id",cData.client_user_id)
+        .eq("trainer_id",trainerId)
+        .eq("status","confirmed")
+        .order("booking_date",{ascending:true});
+      console.log("Step2 - bookings:",b?.length,"error:",bErr?.message);
+      if(b)setBookings(b);
+      setLoading(false);
+    }
+    load();
   },[clientId,trainerId]);
 
   async function cancelBooking(id){
