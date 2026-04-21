@@ -657,8 +657,9 @@ function ClientBookingView({user,trainerId}){
       slot_id:slot.id,trainer_id:bookTrainerId,client_id:user.id,
       client_name:user.email,booking_date:date,status:"confirmed",completed:false
     }).select().single();
+    console.log("BOOKING INSERT result:",data,"error:",error?.message,error?.code);
     if(!error&&data){setMyBookings(p=>[...p,data]);setBooking(null);setMsg("Rezervare confirmată! ✅");}
-    else setMsg("Eroare la rezervare.");
+    else setMsg("Eroare: "+(error?.message||"necunoscută"));
     setTimeout(()=>setMsg(""),3000);
   }
 
