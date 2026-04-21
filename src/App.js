@@ -637,12 +637,10 @@ function ClientBookingView({user,trainerId}){
 
   useEffect(()=>{
     async function load(){
-      const[{data:s,error:sErr},{data:b,error:bErr}]=await Promise.all([
+      const[{data:s},{data:b}]=await Promise.all([
         supabase.from("time_slots").select("*").eq("trainer_id",trainerId).order("day_of_week").order("start_time"),
         supabase.from("bookings").select("*").eq("client_id",user.id)
       ]);
-      console.log("SLOTS:",s?.length,"ERR:",sErr?.message);
-      console.log("BOOKINGS:",b?.length,"ERR:",bErr?.message);
       if(s)setSlots(s);
       if(b)setMyBookings(b);
       setLoading(false);
@@ -1083,12 +1081,7 @@ function TrainerApp({user,profile,setProfile}){
           </>
         )}
 
-        {view==="booking"&&(()=>{
-          console.log("BOOKING RENDER - role:",profile?.role,"trainer_id:",profile?.trainer_id);
-          return profile?.role==="client"
-            ?(profile?.trainer_id?<ClientBookingView user={user} trainerId={profile.trainer_id}/>:<div style={{color:MUTED,fontSize:14,padding:20,textAlign:"center"}}>Contul tău nu este încă legat de un antrenor.</div>)
-            :<TrainerBookingView user={user}/>;
-        })()}
+        {view==="booking"&&<TrainerBookingView user={user}/>}
         {view==="profile"&&<ProfileView user={user} profile={profile} setProfile={setProfile}/>}
       </div>
 
@@ -1345,6 +1338,7 @@ function ClientApp({user,profile,setProfile,clientCard,refreshClientCard}){
           </>
         )}
         {view==="calendar"&&(<><div style={S.sTitle}>📅 Prezențele tale</div><MiniCalendar sessionDates={sessionDates} paymentDates={paymentDates}/></>)}
+        {view==="booking"&&(profile?.trainer_id?<ClientBookingView user={user} trainerId={profile.trainer_id}/>:<div style={{color:MUTED,fontSize:14,padding:20,textAlign:"center"}}>Contul tău nu este încă legat de un antrenor.</div>)}
         {view==="measures"&&<MeasurementsSection clientId={clientCard?.id}/>}
         {view==="photos"&&<ProgressPhotosSection clientId={clientCard?.id}/>}
         {view==="profile"&&<ProfileView user={user} profile={profile} setProfile={setProfile}/>}
@@ -1502,7 +1496,6 @@ export default function Root(){
     if(!user)return;
     setProfileLoading(true);
     supabase.from("profiles").select("*").eq("id",user.id).single().then(async({data:prof,error:profErr})=>{
-      console.log("ROOT PROFILE:",JSON.stringify(prof),"ERR:",profErr?.message);
       setProfile(prof);
       if(prof?.role==="client"){
         await refreshClientCard();
