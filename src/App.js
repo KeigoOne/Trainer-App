@@ -1601,7 +1601,7 @@ function AuthScreen({onAuth}){
         }
         // All validation passed — now create the account
         // Profile is created automatically by DB trigger on auth.users insert
-        const{data,error}=await supabase.auth.signUp({email,password,options:{data:{name,role,trainer_id:trainerId}}});
+        const{error}=await supabase.auth.signUp({email,password,options:{data:{name,role,trainer_id:trainerId}}});
         if(error)throw error;
         // Note: client card linking happens automatically on first login
         // via get_client_card RPC, after email is confirmed
