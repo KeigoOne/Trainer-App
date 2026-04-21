@@ -33,7 +33,12 @@ const TEXT = "#E8ECF4";
 const MUTED = "#6B7590";
 const MONTH_NAMES = ["Ianuarie","Februarie","Martie","Aprilie","Mai","Iunie","Iulie","August","Septembrie","Octombrie","Noiembrie","Decembrie"];
 const DAY_NAMES = ["Lu","Ma","Mi","Jo","Vi","Sâ","Du"];
-const CLIENT_COLORS = ["#00E5A0","#FF6B6B","#A29BFE","#FFB74D","#4ECDC4","#FF8CC8","#74B9FF","#FDCB6E","#E17055","#55EFC4"];
+const CLIENT_COLORS = ["#FF6B6B","#FFB74D","#FF8CC8","#74B9FF","#FDCB6E","#E17055","#C084FC","#FB923C","#F472B6","#38BDF8"];
+// Fixed semantic colors for event types
+const COLOR_SESSION_COMPLETED = "#00E5A0";   // green
+const COLOR_SESSION_PLANNED = "#3B82F6";     // blue
+const COLOR_BOOKING = "#3B82F6";             // blue
+const COLOR_PAYMENT = "#166534";             // dark green
 const GENDERS = ["Male","Female","Other"];
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -173,16 +178,19 @@ function MiniCalendar({sessionDates=[],paymentDates=[],bookingDates=[]}){
         {cells.map((day,i)=>{
           if(!day)return<div key={`e${i}`}/>;
           const isSess=ss.has(day),isPay=ps.has(day),isBook=bs.has(day),isToday=day===today_d;
-          return(<div key={day} style={{textAlign:"center",borderRadius:7,padding:"5px 1px",background:isSess?`${ACCENT}22`:isBook?"#FFB74D18":isPay?"#A29BFE22":"transparent",border:isToday?`1.5px solid ${ACCENT}`:isSess?`1px solid ${ACCENT}50`:isBook?"1px solid #FFB74D50":isPay?"1px solid #A29BFE50":"1px solid transparent"}}>
-            <div style={{fontSize:12,fontWeight:isSess||isPay||isBook?700:400,color:isSess?ACCENT:isBook?"#FFB74D":isPay?"#A29BFE":isToday?ACCENT:MUTED}}>{day}</div>
-            {(isSess||isPay||isBook)&&<div style={{width:4,height:4,borderRadius:"50%",background:isSess?ACCENT:isBook?"#FFB74D":"#A29BFE",margin:"1px auto 0"}}/>}
+          const daybg=isSess?`${COLOR_SESSION_COMPLETED}22`:isBook?`${COLOR_BOOKING}18`:isPay?`${COLOR_PAYMENT}22`:"transparent";
+          const dayborder=isToday?`1.5px solid ${ACCENT}`:isSess?`1px solid ${COLOR_SESSION_COMPLETED}50`:isBook?`1px solid ${COLOR_BOOKING}50`:isPay?`1px solid ${COLOR_PAYMENT}50`:"1px solid transparent";
+          const daycolor=isSess?COLOR_SESSION_COMPLETED:isBook?COLOR_BOOKING:isPay?COLOR_PAYMENT:isToday?ACCENT:MUTED;
+          return(<div key={day} style={{textAlign:"center",borderRadius:7,padding:"5px 1px",background:daybg,border:dayborder}}>
+            <div style={{fontSize:12,fontWeight:isSess||isPay||isBook?700:400,color:daycolor}}>{day}</div>
+            {(isSess||isPay||isBook)&&<div style={{width:4,height:4,borderRadius:"50%",background:isSess?COLOR_SESSION_COMPLETED:isBook?COLOR_BOOKING:COLOR_PAYMENT,margin:"1px auto 0"}}/>}
           </div>);
         })}
       </div>
       <div style={{display:"flex",gap:10,marginTop:10,paddingTop:8,borderTop:`1px solid ${BORDER}`,flexWrap:"wrap"}}>
-        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:MUTED}}><div style={{width:8,height:8,borderRadius:"50%",background:ACCENT}}/>Antrenament</div>
-        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:MUTED}}><div style={{width:8,height:8,borderRadius:"50%",background:"#FFB74D"}}/>Rezervare</div>
-        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:MUTED}}><div style={{width:8,height:8,borderRadius:"50%",background:"#A29BFE"}}/>Plată</div>
+        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:MUTED}}><div style={{width:8,height:8,borderRadius:"50%",background:COLOR_SESSION_COMPLETED}}/>Completat</div>
+        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:MUTED}}><div style={{width:8,height:8,borderRadius:"50%",background:COLOR_BOOKING}}/>Rezervare</div>
+        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:MUTED}}><div style={{width:8,height:8,borderRadius:"50%",background:COLOR_PAYMENT}}/>Plată</div>
       </div>
     </div>
   );
@@ -206,7 +214,7 @@ function GlobalCalendar({clients,bookings=[],onQuickAddSession}){
     const[y,m,d]=b.booking_date.split("-").map(Number);
     if(y===vy&&m-1===vm){
       if(!dayMap[d])dayMap[d]=[];
-      dayMap[d].push({clientName:b.client_name,color:"#A29BFE",type:"booking",time:b.time_slots?.start_time||"",completed:false});
+      dayMap[d].push({clientName:b.client_name,color:COLOR_BOOKING,type:"booking",time:b.time_slots?.start_time||"",completed:false});
     }
   });
   const[ty,tm,td]=ts.split("-").map(Number);const today_d=ty===vy&&tm-1===vm?td:null;
@@ -235,7 +243,7 @@ function GlobalCalendar({clients,bookings=[],onQuickAddSession}){
             const events=dayMap[day]||[],isToday=day===today_d,isSel=day===selDay;
             return(<div key={day} onClick={()=>setSelDay(day===selDay?null:day)} style={{borderRadius:8,padding:"6px 2px 4px",cursor:events.length>0||isToday?"pointer":"default",background:isSel?`${ACCENT}20`:isToday?`${ACCENT}0D`:events.length>0?CARD:"transparent",border:isSel?`1.5px solid ${ACCENT}`:isToday?`1px solid ${ACCENT}60`:events.length>0?`1px solid ${BORDER}`:"1px solid transparent",transition:"all 0.1s"}}>
               <div style={{textAlign:"center",fontSize:12,fontWeight:events.length>0?700:400,color:isToday?ACCENT:events.length>0?TEXT:MUTED}}>{day}</div>
-              <div style={{display:"flex",justifyContent:"center",flexWrap:"wrap",gap:2,marginTop:3,minHeight:7}}>{events.slice(0,4).map((e,di)=><div key={di} style={{width:5,height:5,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.type==="booking"?"#A29BFE":e.completed===false?"#FFB74D":e.color}}/>)}</div>
+              <div style={{display:"flex",justifyContent:"center",flexWrap:"wrap",gap:2,marginTop:3,minHeight:7}}>{events.slice(0,4).map((e,di)=><div key={di} style={{width:5,height:5,borderRadius:"50%",background:e.type==="payment"?COLOR_PAYMENT:e.type==="booking"?COLOR_BOOKING:e.completed===false?COLOR_SESSION_PLANNED:e.type==="session"?COLOR_SESSION_COMPLETED:e.color}}/>)}</div>
             </div>);
           })}
         </div>
@@ -253,7 +261,13 @@ function GlobalCalendar({clients,bookings=[],onQuickAddSession}){
             ))}
         </div>
       )}
-      {clients.length>0&&(<><div style={{fontSize:11,fontWeight:700,color:MUTED,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>Legendă</div><div style={{display:"flex",flexWrap:"wrap",gap:7}}>{clients.map((c,ci)=>(<div key={c.id} style={{display:"flex",alignItems:"center",gap:5,background:CARD2,borderRadius:8,padding:"5px 10px",border:`1px solid ${BORDER}`}}><div style={{width:8,height:8,borderRadius:"50%",background:CLIENT_COLORS[ci%CLIENT_COLORS.length]}}/><span style={{fontSize:12,fontWeight:600}}>{c.name}</span></div>))}</div></>)}
+      <div style={{display:"flex",gap:10,marginTop:14,paddingTop:10,borderTop:`1px solid ${BORDER}`,flexWrap:"wrap"}}>
+    <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:MUTED}}><div style={{width:8,height:8,borderRadius:"50%",background:COLOR_SESSION_COMPLETED}}/>Completat</div>
+    <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:MUTED}}><div style={{width:8,height:8,borderRadius:"50%",background:COLOR_SESSION_PLANNED}}/>Planificat</div>
+    <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:MUTED}}><div style={{width:8,height:8,borderRadius:"50%",background:COLOR_BOOKING}}/>Rezervare</div>
+    <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:MUTED}}><div style={{width:8,height:8,borderRadius:"50%",background:COLOR_PAYMENT}}/>Plată</div>
+  </div>
+  {clients.length>0&&(<><div style={{fontSize:11,fontWeight:700,color:MUTED,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8,marginTop:14}}>Clienți</div><div style={{display:"flex",flexWrap:"wrap",gap:7}}>{clients.map((c,ci)=>(<div key={c.id} style={{display:"flex",alignItems:"center",gap:5,background:CARD2,borderRadius:8,padding:"5px 10px",border:`1px solid ${BORDER}`}}><div style={{width:8,height:8,borderRadius:"50%",background:CLIENT_COLORS[ci%CLIENT_COLORS.length]}}/><span style={{fontSize:12,fontWeight:600}}>{c.name}</span></div>))}</div></>)}
     </div>
   );
 }
@@ -639,7 +653,7 @@ function TrainerBookingView({user}){
 }
 
 // Client: view and book slots
-function ClientBookingView({user,trainerId}){
+function ClientBookingView({user,trainerId,clientName}){
   const[slots,setSlots]=useState([]);
   const[myBookings,setMyBookings]=useState([]);
   const[loading,setLoading]=useState(true);
@@ -666,7 +680,7 @@ function ClientBookingView({user,trainerId}){
     const bookTrainerId=trainerId||slot.trainer_id;
     const{data,error}=await supabase.from("bookings").insert({
       slot_id:slot.id,trainer_id:bookTrainerId,client_id:user.id,
-      client_name:user.email,booking_date:date,status:"confirmed"
+      client_name:clientName||user.email,booking_date:date,status:"confirmed"
     }).select().single();
     if(!error&&data){setMyBookings(p=>[...p,data]);setBooking(null);setMsg("Rezervare confirmată! ✅");}
     else setMsg("Eroare: "+(error?.message||"necunoscută"));
@@ -1029,8 +1043,8 @@ function TrainerApp({user,profile,setProfile}){
                           </div>
                         </div>
                         <div style={S.row}>
-                          {h.type==="payment"&&<span style={S.badge(ACCENT,`${ACCENT}20`)}>+{h.amount} RON</span>}
-                          {h.type==="session"&&!isPlanned&&h.sessionPrice>0&&<span style={S.badge("#A29BFE","#A29BFE20")}>{h.sessionPrice} RON</span>}
+                          {h.type==="payment"&&<span style={S.badge(COLOR_PAYMENT,`${COLOR_PAYMENT}20`)}>+{h.amount} RON</span>}
+                          {h.type==="session"&&!isPlanned&&h.sessionPrice>0&&<span style={S.badge(COLOR_SESSION_COMPLETED,`${COLOR_SESSION_COMPLETED}20`)}>{h.sessionPrice} RON</span>}
                           {isPlanned&&(
                             <button style={{...S.btn("success"),padding:"5px 10px",fontSize:12}} onClick={()=>{
                               setClients(prev=>prev.map(c=>{
@@ -1368,15 +1382,15 @@ function ClientApp({user,profile,setProfile,clientCard,refreshClientCard}){
                 :[...(clientCard?.history||[])].reverse().slice(0,10).map((h,i,arr)=>(
                   <div key={h.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px 16px",borderBottom:i<arr.length-1?`1px solid ${BORDER}`:"none"}}>
                     <div style={S.row}><span style={{fontSize:17}}>{h.type==="payment"?"💳":"🏋️"}</span><div><div style={{fontSize:13,fontWeight:600}}>{h.note}</div><div style={{fontSize:11,color:MUTED}}>{formatDateTime(h.date,h.time)}</div></div></div>
-                    {h.type==="payment"&&<span style={S.badge(ACCENT,`${ACCENT}20`)}>+{h.amount} RON</span>}
-                    {h.type==="session"&&h.sessionPrice>0&&<span style={S.badge("#A29BFE","#A29BFE20")}>{h.sessionPrice} RON</span>}
+                    {h.type==="payment"&&<span style={S.badge(COLOR_PAYMENT,`${COLOR_PAYMENT}20`)}>+{h.amount} RON</span>}
+                    {h.type==="session"&&h.sessionPrice>0&&<span style={S.badge(COLOR_SESSION_COMPLETED,`${COLOR_SESSION_COMPLETED}20`)}>{h.sessionPrice} RON</span>}
                   </div>
                 ))}
             </div>
           </>
         )}
         {view==="calendar"&&(<ClientCalendarView user={user} profile={profile} sessionDates={sessionDates} paymentDates={paymentDates}/>)}
-        {view==="booking"&&(profile?.trainer_id?<ClientBookingView user={user} trainerId={profile.trainer_id}/>:<div style={{color:MUTED,fontSize:14,padding:20,textAlign:"center"}}>Contul tău nu este încă legat de un antrenor.</div>)}
+        {view==="booking"&&(profile?.trainer_id?<ClientBookingView user={user} trainerId={profile.trainer_id} clientName={profile?.name}/>:<div style={{color:MUTED,fontSize:14,padding:20,textAlign:"center"}}>Contul tău nu este încă legat de un antrenor.</div>)}
         {view==="measures"&&<MeasurementsSection clientId={clientCard?.id}/>}
         {view==="photos"&&<ProgressPhotosSection clientId={clientCard?.id}/>}
         {view==="profile"&&<ProfileView user={user} profile={profile} setProfile={setProfile}/>}
