@@ -655,9 +655,8 @@ function ClientBookingView({user,trainerId}){
     const bookTrainerId=trainerId||slot.trainer_id;
     const{data,error}=await supabase.from("bookings").insert({
       slot_id:slot.id,trainer_id:bookTrainerId,client_id:user.id,
-      client_name:user.email,booking_date:date,status:"confirmed",completed:false
+      client_name:user.email,booking_date:date,status:"confirmed"
     }).select().single();
-    console.log("BOOKING INSERT result:",data,"error:",error?.message,error?.code);
     if(!error&&data){setMyBookings(p=>[...p,data]);setBooking(null);setMsg("Rezervare confirmată! ✅");}
     else setMsg("Eroare: "+(error?.message||"necunoscută"));
     setTimeout(()=>setMsg(""),3000);
