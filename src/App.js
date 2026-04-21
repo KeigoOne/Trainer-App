@@ -62,13 +62,6 @@ async function getSignedUrl(path) {
 }
 
 // ─── SUPABASE SYNC ────────────────────────────────────────────────────────────
-// Debounce helper — prevents hammering DB on rapid state changes
-function debounce(fn, delay){
-  let timer;
-  return function(...args){ clearTimeout(timer); timer=setTimeout(()=>fn(...args), delay); };
-}
-const debouncedSync = debounce(async function(prev,next,userId){ await syncToSupabaseRaw(prev,next,userId); }, 800);
-
 async function syncToSupabaseRaw(prev,next,userId){
   const pm=Object.fromEntries(prev.map(c=>[c.id,c]));
   const nm=Object.fromEntries(next.map(c=>[c.id,c]));
@@ -91,7 +84,7 @@ function useStorage(user){
   const setClients=useCallback((updater)=>{
     setClientsState((prev)=>{
       const next=typeof updater==="function"?updater(prev):updater;
-      if(user)debouncedSync(prev,next,user.id);
+      if(user)syncToSupabaseRaw(prev,next,user.id);
       return next;
     });
   },[user]);
@@ -644,10 +637,12 @@ function ClientBookingView({user,trainerId}){
 
   useEffect(()=>{
     async function load(){
-      const[{data:s},{data:b}]=await Promise.all([
+      const[{data:s,error:sErr},{data:b,error:bErr}]=await Promise.all([
         supabase.from("time_slots").select("*").eq("trainer_id",trainerId).order("day_of_week").order("start_time"),
         supabase.from("bookings").select("*").eq("client_id",user.id)
       ]);
+      console.log("SLOTS:",s?.length,"ERR:",sErr?.message);
+      console.log("BOOKINGS:",b?.length,"ERR:",bErr?.message);
       if(s)setSlots(s);
       if(b)setMyBookings(b);
       setLoading(false);
