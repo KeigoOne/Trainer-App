@@ -510,6 +510,72 @@ function ProfileView({user,profile,setProfile}){
 }
 
 
+
+// ─── CLIENT BOOKINGS SECTION (shown in client detail) ─────────────────────────
+function ClientBookingsSection({clientId, trainerId}){
+  const[bookings,setBookings]=useState([]);
+  const[loading,setLoading]=useState(true);
+  const[clientUserId,setClientUserId]=useState(null);
+
+  useEffect(()=>{
+    // Step 1: get client_user_id from clients table
+    supabase.from("clients").select("client_user_id").eq("id",clientId).single()
+      .then(({data})=>{
+        if(data?.client_user_id){
+          setClientUserId(data.client_user_id);
+          // Step 2: fetch bookings for this client
+          supabase.from("bookings")
+            .select("*,time_slots(start_time,end_time,day_of_week,repeat,specific_date)")
+            .eq("client_id",data.client_user_id)
+            .eq("trainer_id",trainerId)
+            .eq("status","confirmed")
+            .order("booking_date",{ascending:true})
+            .then(({data:b})=>{ if(b)setBookings(b); setLoading(false); });
+        } else {
+          setLoading(false);
+        }
+      });
+  },[clientId,trainerId]);
+
+  async function cancelBooking(id){
+    await supabase.from("bookings").update({status:"cancelled"}).eq("id",id);
+    setBookings(p=>p.filter(b=>b.id!==id));
+  }
+
+  if(loading) return <div style={{color:MUTED,fontSize:13,padding:"8px 0"}}>Se încarcă rezervările...</div>;
+  if(!clientUserId) return <div style={{color:MUTED,fontSize:13,padding:"8px 0"}}>Clientul nu are cont legat — rezervările nu sunt disponibile.</div>;
+  if(bookings.length===0) return <div style={{color:MUTED,fontSize:13,padding:"8px 0"}}>Nicio rezervare activă.</div>;
+
+  return(
+    <>
+      {bookings.map(b=>{
+        const slot=b.time_slots;
+        const dayLabel=slot?.repeat?DAYS_RO[slot.day_of_week]:slot?.specific_date||"";
+        const isPast=b.booking_date<today();
+        return(
+          <div key={b.id} style={{...S.card,padding:"11px 14px",marginBottom:7,border:`1px solid ${COLOR_BOOKING}30`}}>
+            <div style={S.sb}>
+              <div style={S.row}>
+                <span style={{fontSize:17}}>🗓</span>
+                <div>
+                  <div style={{fontSize:13,fontWeight:600,color:COLOR_BOOKING}}>{b.booking_date} · {slot?.start_time||""}–{slot?.end_time||""}</div>
+                  <div style={{fontSize:11,color:MUTED}}>{dayLabel} · {b.client_name}</div>
+                </div>
+              </div>
+              <div style={S.row}>
+                {isPast
+                  ?<span style={S.badge(MUTED,CARD2)}>Trecut</span>
+                  :<button style={{...S.btn("danger"),padding:"5px 10px",fontSize:12}} onClick={()=>cancelBooking(b.id)}>✕ Anulează</button>
+                }
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 // ─── QUICK SESSION MODAL ──────────────────────────────────────────────────────
 function QuickSessionModal({clients,initialDate,onClose,onConfirm}){
   const[qClient,setQClient]=useState("");
@@ -1016,7 +1082,7 @@ function TrainerApp({user,profile,setProfile}){
               </div>
               {/* Sub-tabs */}
               <div style={{display:"flex",gap:4,background:`${CARD2}80`,borderRadius:10,padding:3,marginBottom:16}}>
-                {[["info","📋 Info"],["measures","📏 Măsurători"],["photos","📸 Poze"]].map(([t,label])=>(
+                {[["info","📋 Info"],["bookings","🗓 Rezervări"],["measures","📏 Măsurători"],["photos","📸 Poze"]].map(([t,label])=>(
                   <button key={t} style={{flex:1,padding:"7px 0",borderRadius:7,border:"none",cursor:"pointer",fontSize:11,fontWeight:600,transition:"all 0.2s",background:clientTab===t?ACCENT:"transparent",color:clientTab===t?"#000":MUTED,fontFamily:"'DM Sans',sans-serif"}} onClick={()=>setClientTab(t)}>{label}</button>
                 ))}
               </div>
@@ -1062,6 +1128,12 @@ function TrainerApp({user,profile,setProfile}){
                     </div>
                     );
                   })}
+                </>
+              )}
+              {clientTab==="bookings"&&(
+                <>
+                  <div style={S.sTitle}>🗓 Rezervări active</div>
+                  <ClientBookingsSection clientId={client.id} trainerId={user.id}/>
                 </>
               )}
               {clientTab==="measures"&&<MeasurementsSection clientId={client.id}/>}
