@@ -1368,17 +1368,16 @@ function TrainerApp({user,profile,setProfile}){
           initialDate={modal.date||today()}
           onClose={()=>setModal(null)}
           onConfirm={(qClient,qDate,qTime)=>{
-            const isFuture=qDate>today();
+            // Calendar quick-add is always PLANNED — trainer marks complete manually
             setClients(prev=>prev.map(c=>{
               if(c.id!==qClient)return c;
               return{...c,
-                sessionsLeft:isFuture?c.sessionsLeft:Math.max(0,(c.sessionsLeft||0)-1),
                 history:[...(c.history||[]),{
                   id:crypto.randomUUID(),type:"session",
                   date:qDate,time:qTime,
                   sessionPrice:c.sessionPrice||0,
-                  completed:!isFuture,
-                  note:isFuture?"Ședință planificată":"Ședință completată"
+                  completed:false,
+                  note:"Ședință planificată"
                 }]
               };
             }));
