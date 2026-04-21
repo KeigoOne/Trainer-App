@@ -70,11 +70,23 @@ async function getSignedUrl(path) {
 async function syncToSupabaseRaw(prev,next,userId){
   const pm=Object.fromEntries(prev.map(c=>[c.id,c]));
   const nm=Object.fromEntries(next.map(c=>[c.id,c]));
-  for(const id of Object.keys(pm)){if(!nm[id])await supabase.from("clients").delete().eq("id",id).eq("user_id",userId);}
+  for(const id of Object.keys(pm)){
+    if(!nm[id]){
+      const{error}=await supabase.from("clients").delete().eq("id",id).eq("user_id",userId);
+      if(error)console.error("Sync delete error:",error.message);
+    }
+  }
   for(const client of next){
     const p=pm[client.id];
     if(!p||JSON.stringify(p)!==JSON.stringify(client)){
-      await supabase.from("clients").upsert({id:client.id,user_id:userId,client_email:client.email||null,data:client});
+      const{error}=await supabase.from("clients").upsert({
+        id:client.id,user_id:userId,
+        client_email:client.email||null,
+        data:client,
+        updated_at:new Date().toISOString()
+      });
+      if(error)console.error("Sync upsert error for",client.name,":",error.message,error.code);
+      else console.log("Synced:",client.name,"history entries:",client.history?.length);
     }
   }
 }
