@@ -203,7 +203,7 @@ function GlobalCalendar({clients,onQuickAddSession}){
   const dayMap={};
   clients.forEach((c,ci)=>{
     const color=CLIENT_COLORS[ci%CLIENT_COLORS.length];
-    (c.history||[]).forEach(h=>{const[y,m,d]=h.date.split("-").map(Number);if(y===vy&&m-1===vm){if(!dayMap[d])dayMap[d]=[];dayMap[d].push({clientName:c.name,color,type:h.type,sessionPrice:c.sessionPrice,amount:h.amount,time:h.time});}});
+    (c.history||[]).forEach(h=>{const[y,m,d]=h.date.split("-").map(Number);if(y===vy&&m-1===vm){if(!dayMap[d])dayMap[d]=[];dayMap[d].push({clientName:c.name,color,type:h.type,sessionPrice:c.sessionPrice,amount:h.amount,time:h.time,completed:h.completed});}});
   });
   const[ty,tm,td]=ts.split("-").map(Number);const today_d=ty===vy&&tm-1===vm?td:null;
   function prev(){if(vm===0){setVy(y=>y-1);setVm(11);}else setVm(m=>m-1);}
@@ -231,7 +231,7 @@ function GlobalCalendar({clients,onQuickAddSession}){
             const events=dayMap[day]||[],isToday=day===today_d,isSel=day===selDay;
             return(<div key={day} onClick={()=>setSelDay(day===selDay?null:day)} style={{borderRadius:8,padding:"6px 2px 4px",cursor:events.length>0||isToday?"pointer":"default",background:isSel?`${ACCENT}20`:isToday?`${ACCENT}0D`:events.length>0?CARD:"transparent",border:isSel?`1.5px solid ${ACCENT}`:isToday?`1px solid ${ACCENT}60`:events.length>0?`1px solid ${BORDER}`:"1px solid transparent",transition:"all 0.1s"}}>
               <div style={{textAlign:"center",fontSize:12,fontWeight:events.length>0?700:400,color:isToday?ACCENT:events.length>0?TEXT:MUTED}}>{day}</div>
-              <div style={{display:"flex",justifyContent:"center",flexWrap:"wrap",gap:2,marginTop:3,minHeight:7}}>{events.slice(0,4).map((e,di)=><div key={di} style={{width:5,height:5,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.color}}/>)}</div>
+              <div style={{display:"flex",justifyContent:"center",flexWrap:"wrap",gap:2,marginTop:3,minHeight:7}}>{events.slice(0,4).map((e,di)=><div key={di} style={{width:5,height:5,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.completed===false?"#FFB74D":e.color}}/>)}</div>
             </div>);
           })}
         </div>
@@ -242,7 +242,7 @@ function GlobalCalendar({clients,onQuickAddSession}){
           {selEvents.length===0?<div style={{color:MUTED,fontSize:14}}>Nicio activitate în această zi</div>
             :selEvents.map((e,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:i<selEvents.length-1?`1px solid ${BORDER}`:"none"}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:10,height:10,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.color,flexShrink:0}}/><div><div style={{fontSize:14,fontWeight:600}}>{e.clientName}</div><div style={{fontSize:11,color:MUTED}}>{e.type==="session"?"🏋️ Antrenament":"💳 Plată"}{e.time?` · ${e.time}`:""}</div></div></div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:10,height:10,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.color,flexShrink:0}}/><div><div style={{fontSize:14,fontWeight:600}}>{e.clientName}</div><div style={{fontSize:11,color:MUTED}}>{e.type==="session"?(e.completed===false?"📅 Planificat":"🏋️ Antrenament"):"💳 Plată"}{e.time?` · ${e.time}`:""}</div></div></div>
                 {e.type==="session"&&e.sessionPrice>0&&<span style={{fontSize:13,fontWeight:700,color:e.color}}>{e.sessionPrice} RON</span>}
                 {e.type==="payment"&&<span style={{fontSize:13,fontWeight:700,color:"#A29BFE"}}>{e.amount} RON</span>}
               </div>
@@ -674,7 +674,7 @@ function ClientBookingView({user,profile}){
     const trainerId=profile?.trainer_id||slot.trainer_id;
     const{data,error}=await supabase.from("bookings").insert({
       slot_id:slot.id,trainer_id:trainerId,client_id:user.id,
-      client_name:profile.name||user.email,booking_date:date,status:"confirmed"
+      client_name:profile.name||user.email,booking_date:date,status:"confirmed",completed:false
     }).select().single();
     if(!error&&data){setMyBookings(p=>[...p,data]);setBooking(null);setMsg("Rezervare confirmată! ✅");}
     else setMsg("Eroare la rezervare.");
@@ -782,7 +782,9 @@ function TrainerApp({user,profile,setProfile}){
 
   const ts=today();
   const todaySess=clients.flatMap(c=>(c.history||[]).filter(h=>h.type==="session"&&h.date===ts).map(h=>({...h,clientName:c.name,sessionPrice:c.sessionPrice||0})));
-  const todayIncome=todaySess.reduce((s,h)=>s+Number(h.sessionPrice||0),0);
+  const todaySessCompleted=todaySess.filter(h=>h.completed!==false);
+  const todaySessPlanned=todaySess.filter(h=>h.completed===false);
+  const todayIncome=todaySessCompleted.reduce((s,h)=>s+Number(h.sessionPrice||0),0);
   const todayPays=clients.flatMap(c=>(c.history||[]).filter(h=>h.type==="payment"&&h.date===ts).map(h=>({...h,clientName:c.name})));
   const todayPayTotal=todayPays.reduce((s,h)=>s+Number(h.amount||0),0);
   const thisMonth=ts.slice(0,7);
@@ -821,7 +823,7 @@ function TrainerApp({user,profile,setProfile}){
       const newHistory=(c.history||[]).filter(h=>h.id!==entryId);
       // Recalculate sessionsLeft from scratch: payments add sessions, sessions subtract
       const paidSessions=newHistory.filter(h=>h.type==="payment").reduce((s,h)=>s+Number(h.sessions||0),0);
-      const usedSessions=newHistory.filter(h=>h.type==="session").length;
+      const usedSessions=newHistory.filter(h=>h.type==="session"&&h.completed!==false).length;
       const newSessionsLeft=Math.max(0,paidSessions-usedSessions);
       const newTotalSessions=paidSessions;
       return{...c,sessionsLeft:newSessionsLeft,totalSessions:newTotalSessions,history:newHistory};
@@ -871,7 +873,7 @@ function TrainerApp({user,profile,setProfile}){
                 <div style={{fontSize:13,color:MUTED,fontWeight:600,marginBottom:4}}>Bună ziua,</div>
                 <div style={{fontSize:22,fontWeight:900,color:TEXT,letterSpacing:"-0.5px"}}>{trainerName} 💪</div>
                 <div style={{fontSize:12,color:MUTED,marginTop:4,marginBottom:trainerName?6:12}}>{new Date().toLocaleDateString("ro-RO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
-              {trainerName&&<div style={{fontSize:12,color:ACCENT,fontWeight:700,marginBottom:12}}>🏋️ Antrenor: {trainerName}</div>}
+              {trainerName&&profile?.role==="client"&&<div style={{fontSize:12,color:ACCENT,fontWeight:700,marginBottom:12}}>🏋️ Antrenor: {trainerName}</div>}
                 <div style={{borderTop:`1px solid ${BORDER}`,paddingTop:12,marginTop:4}}>
                   <div style={{fontSize:13,fontStyle:"italic",color:TEXT,lineHeight:1.5}}>"{q.text}"</div>
                   {q.author&&<div style={{fontSize:11,color:MUTED,marginTop:4,fontWeight:600}}>— {q.author}</div>}
@@ -883,7 +885,7 @@ function TrainerApp({user,profile,setProfile}){
               <div style={S.sTitle}>Azi — {todaySessionsAll.length} {todaySessionsAll.length===1?"ședință":"ședințe"}</div>
               {todaySessionsAll.length===0
                 ?<div style={{...S.card,color:MUTED,fontSize:13}}>Nicio ședință programată azi</div>
-                :todaySessionsAll.map(s=>(
+                :todaySessionsAll.map(s=>{const isPlanned=s.completed===false;return(
                   <div key={s.id} style={{...S.card,padding:"12px 14px",marginBottom:8}}>
                     <div style={S.sb}>
                       <div style={S.row}>
@@ -1016,18 +1018,38 @@ function TrainerApp({user,profile,setProfile}){
                   </div>
                   <div style={S.sTitle}>Istoric activitate</div>
                   {(client.history||[]).length===0&&<div style={{color:MUTED,fontSize:14,padding:"10px 0"}}>Nicio activitate încă</div>}
-                  {[...(client.history||[])].reverse().map(h=>(
-                    <div key={h.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}>
+                  {[...(client.history||[])].reverse().map(h=>{
+                    const isPlanned=h.type==="session"&&h.completed===false;
+                    return(
+                    <div key={h.id} style={{...S.card,padding:"11px 14px",marginBottom:7,border:`1px solid ${isPlanned?"#FFB74D30":BORDER}`}}>
                       <div style={S.sb}>
-                        <div style={S.row}><span style={{fontSize:17}}>{h.type==="payment"?"💳":"🏋️"}</span><div><div style={{fontSize:13,fontWeight:600}}>{h.note}</div><div style={{fontSize:11,color:MUTED}}>{formatDateTime(h.date,h.time)}</div></div></div>
+                        <div style={S.row}>
+                          <span style={{fontSize:17}}>{h.type==="payment"?"💳":isPlanned?"📅":"🏋️"}</span>
+                          <div>
+                            <div style={{fontSize:13,fontWeight:600,color:isPlanned?"#FFB74D":TEXT}}>{h.note}</div>
+                            <div style={{fontSize:11,color:MUTED}}>{formatDateTime(h.date,h.time)}</div>
+                          </div>
+                        </div>
                         <div style={S.row}>
                           {h.type==="payment"&&<span style={S.badge(ACCENT,`${ACCENT}20`)}>+{h.amount} RON</span>}
-                          {h.type==="session"&&h.sessionPrice>0&&<span style={S.badge("#A29BFE","#A29BFE20")}>{h.sessionPrice} RON</span>}
+                          {h.type==="session"&&!isPlanned&&h.sessionPrice>0&&<span style={S.badge("#A29BFE","#A29BFE20")}>{h.sessionPrice} RON</span>}
+                          {isPlanned&&(
+                            <button style={{...S.btn("success"),padding:"5px 10px",fontSize:12}} onClick={()=>{
+                              setClients(prev=>prev.map(c=>{
+                                if(c.id!==client.id)return c;
+                                return{...c,
+                                  sessionsLeft:Math.max(0,(c.sessionsLeft||0)-1),
+                                  history:(c.history||[]).map(x=>x.id===h.id?{...x,completed:true,note:"Ședință completată"}:x)
+                                };
+                              }));
+                            }}>✅ Marchează</button>
+                          )}
                           <button style={{...S.btn("icon"),color:ACCENT2,marginLeft:2}} onClick={()=>setDeleteConfirm({clientId:client.id,entryId:h.id})}>✕</button>
                         </div>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </>
               )}
               {clientTab==="measures"&&<MeasurementsSection clientId={client.id}/>}
@@ -1047,8 +1069,27 @@ function TrainerApp({user,profile,setProfile}){
               <div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:12,padding:14,textAlign:"center"}}><div style={{fontSize:22,fontWeight:900,color:ACCENT}}>{todayIncome} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Ședințe azi</div></div>
               <div style={{background:"#A29BFE15",border:"1px solid #A29BFE40",borderRadius:12,padding:14,textAlign:"center"}}><div style={{fontSize:22,fontWeight:900,color:"#A29BFE"}}>{todayPayTotal} RON</div><div style={{fontSize:10,color:MUTED,fontWeight:700,textTransform:"uppercase"}}>Plăți azi</div></div>
             </div>
-            <div style={S.sTitle}>Ședințe ({todaySess.length})</div>
-            {todaySess.length===0?<div style={{color:MUTED,fontSize:14,marginBottom:12}}>Nicio ședință azi</div>:todaySess.map(s=>(<div key={s.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}><div style={S.sb}><div style={S.row}><span>🏋️</span><div><div style={{fontWeight:600}}>{s.clientName}</div>{s.time&&<div style={{fontSize:11,color:MUTED}}>{s.time}</div>}</div></div><span style={S.badge(ACCENT,`${ACCENT}20`)}>{s.sessionPrice} RON</span></div></div>))}
+            <div style={S.sTitle}>Ședințe completate ({todaySessCompleted.length})</div>
+            {todaySessCompleted.length===0?<div style={{color:MUTED,fontSize:14,marginBottom:12}}>Nicio ședință completată azi</div>:todaySessCompleted.map(s=>(<div key={s.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}><div style={S.sb}><div style={S.row}><span>🏋️</span><div><div style={{fontWeight:600}}>{s.clientName}</div>{s.time&&<div style={{fontSize:11,color:MUTED}}>{s.time}</div>}</div></div><span style={S.badge(ACCENT,`${ACCENT}20`)}>{s.sessionPrice} RON</span></div></div>))}
+            {todaySessPlanned.length>0&&(
+              <>
+                <div style={S.sTitle}>Planificate azi ({todaySessPlanned.length})</div>
+                {todaySessPlanned.map(s=>(
+                  <div key={s.id} style={{...S.card,padding:"11px 14px",marginBottom:7,border:"1px solid #FFB74D30"}}>
+                    <div style={S.sb}>
+                      <div style={S.row}><span>📅</span><div><div style={{fontWeight:600,color:"#FFB74D"}}>{s.clientName}</div>{s.time&&<div style={{fontSize:11,color:MUTED}}>{s.time}</div>}</div></div>
+                      <button style={{...S.btn("success"),padding:"6px 12px",fontSize:12}} onClick={()=>{
+                        setClients(prev=>prev.map(c=>{
+                          const h=c.history?.find(x=>x.id===s.id);
+                          if(!h)return c;
+                          return{...c,sessionsLeft:Math.max(0,(c.sessionsLeft||0)-1),history:c.history.map(x=>x.id===s.id?{...x,completed:true,note:"Ședință completată"}:x)};
+                        }));
+                      }}>✅ Marchează</button>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
             <div style={S.sTitle}>Plăți ({todayPays.length})</div>
             {todayPays.length===0?<div style={{color:MUTED,fontSize:14,marginBottom:12}}>Nicio plată azi</div>:todayPays.map(p=>(<div key={p.id} style={{...S.card,padding:"11px 14px",marginBottom:7}}><div style={S.sb}><div style={S.row}><span>💳</span><span style={{fontWeight:600}}>{p.clientName}</span></div><span style={S.badge("#A29BFE","#A29BFE20")}>{p.amount} RON</span></div></div>))}
             <div style={S.divider}/>
@@ -1162,9 +1203,19 @@ function TrainerApp({user,profile,setProfile}){
           initialDate={modal.date||today()}
           onClose={()=>setModal(null)}
           onConfirm={(qClient,qDate,qTime)=>{
+            const isFuture=qDate>today();
             setClients(prev=>prev.map(c=>{
               if(c.id!==qClient)return c;
-              return{...c,sessionsLeft:Math.max(0,(c.sessionsLeft||0)-1),history:[...(c.history||[]),{id:crypto.randomUUID(),type:"session",date:qDate,time:qTime,sessionPrice:c.sessionPrice||0,note:"Ședință completată"}]};
+              return{...c,
+                sessionsLeft:isFuture?c.sessionsLeft:Math.max(0,(c.sessionsLeft||0)-1),
+                history:[...(c.history||[]),{
+                  id:crypto.randomUUID(),type:"session",
+                  date:qDate,time:qTime,
+                  sessionPrice:c.sessionPrice||0,
+                  completed:!isFuture,
+                  note:isFuture?"Ședință planificată":"Ședință completată"
+                }]
+              };
             }));
             setCalendarKey(k=>k+1);
             setModal(null);
@@ -1262,7 +1313,7 @@ function ClientApp({user,profile,setProfile,clientCard,refreshClientCard}){
               <div style={{fontSize:13,color:MUTED,fontWeight:600,marginBottom:4}}>Bună ziua,</div>
               <div style={{fontSize:22,fontWeight:900,color:TEXT,letterSpacing:"-0.5px"}}>{profile?.name||user?.email?.split("@")[0]} 👋</div>
               <div style={{fontSize:12,color:MUTED,marginTop:4,marginBottom:trainerName?6:12}}>{new Date().toLocaleDateString("ro-RO",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</div>
-              {trainerName&&<div style={{fontSize:12,color:ACCENT,fontWeight:700,marginBottom:12}}>🏋️ Antrenor: {trainerName}</div>}
+              {trainerName&&profile?.role==="client"&&<div style={{fontSize:12,color:ACCENT,fontWeight:700,marginBottom:12}}>🏋️ Antrenor: {trainerName}</div>}
               <div style={{borderTop:`1px solid ${BORDER}`,paddingTop:12,marginTop:4}}>
                 <div style={{fontSize:13,fontStyle:"italic",color:TEXT,lineHeight:1.5}}>"{q.text}"</div>
                 {q.author&&<div style={{fontSize:11,color:MUTED,marginTop:4,fontWeight:600}}>— {q.author}</div>}
