@@ -1088,8 +1088,10 @@ function TrainerApp({user,profile,setProfile}){
           </>
         )}
 
-        {view==="booking"&&<TrainerBookingView user={user}/>}
-        {view==="booking"&&(profile?.trainer_id?<ClientBookingView user={user} trainerId={profile.trainer_id}/>:<div style={{color:MUTED,fontSize:14,padding:20,textAlign:"center"}}>Se încarcă datele antrenorului...</div>)}
+        {view==="booking"&&(profile?.role==="client"
+          ?(profile?.trainer_id?<ClientBookingView user={user} trainerId={profile.trainer_id}/>:<div style={{color:MUTED,fontSize:14,padding:20,textAlign:"center"}}>Contul tău nu este încă legat de un antrenor.</div>)
+          :<TrainerBookingView user={user}/>
+        )}
         {view==="profile"&&<ProfileView user={user} profile={profile} setProfile={setProfile}/>}
       </div>
 
