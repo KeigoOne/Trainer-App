@@ -886,16 +886,17 @@ function TrainerApp({user,profile,setProfile}){
               {todaySessionsAll.length===0
                 ?<div style={{...S.card,color:MUTED,fontSize:13}}>Nicio ședință programată azi</div>
                 :todaySessionsAll.map(s=>{const isPlanned=s.completed===false;return(
-                  <div key={s.id} style={{...S.card,padding:"12px 14px",marginBottom:8}}>
+                  <div key={s.id} style={{...S.card,padding:"12px 14px",marginBottom:8,border:`1px solid ${isPlanned?"#FFB74D30":BORDER}`}}>
                     <div style={S.sb}>
                       <div style={S.row}>
-                        <div style={{width:36,height:36,borderRadius:10,background:`${ACCENT}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>🏋️</div>
-                        <div><div style={{fontSize:14,fontWeight:700}}>{s.clientName}</div><div style={{fontSize:12,color:MUTED}}>{s.time||"—"}</div></div>
+                        <div style={{width:36,height:36,borderRadius:10,background:isPlanned?"#FFB74D18":`${ACCENT}18`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>{isPlanned?"📅":"🏋️"}</div>
+                        <div><div style={{fontSize:14,fontWeight:700,color:isPlanned?"#FFB74D":TEXT}}>{s.clientName}</div><div style={{fontSize:12,color:MUTED}}>{s.time||"—"}</div></div>
                       </div>
-                      {s.sessionPrice>0&&<span style={S.badge(ACCENT,`${ACCENT}20`)}>{s.sessionPrice} RON</span>}
+                      {!isPlanned&&s.sessionPrice>0&&<span style={S.badge(ACCENT,`${ACCENT}20`)}>{s.sessionPrice} RON</span>}
+                      {isPlanned&&<span style={S.badge("#FFB74D","#FFB74D20")}>Planificat</span>}
                     </div>
                   </div>
-                ))
+                );})
               }
 
               {/* Payment reminders */}
