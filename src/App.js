@@ -643,15 +643,28 @@ function ClientBookingView({user,profile}){
   const[msg,setMsg]=useState("");
 
   useEffect(()=>{
-    if(!profile?.trainer_id)return;
-    Promise.all([
-      supabase.from("time_slots").select("*").eq("trainer_id",profile.trainer_id).order("day_of_week").order("start_time"),
-      supabase.from("bookings").select("*").eq("client_id",user.id)
-    ]).then(([{data:s},{data:b}])=>{
+    async function load(){
+      let trainerId=profile?.trainer_id;
+      if(!trainerId){
+        const{data:card}=await supabase.rpc("get_client_card");
+        if(card?.found&&card?.data?.user_id) trainerId=card.data.user_id;
+      }
+      if(!trainerId){
+        console.log("No trainer_id found for client");
+        setLoading(false);
+        return;
+      }
+      const[{data:s,error:sErr},{data:b,error:bErr}]=await Promise.all([
+        supabase.from("time_slots").select("*").eq("trainer_id",trainerId).order("day_of_week").order("start_time"),
+        supabase.from("bookings").select("*").eq("client_id",user.id)
+      ]);
+      console.log("SLOTS:",s,"ERROR:",sErr);
+      console.log("BOOKINGS:",b,"ERROR:",bErr);
       if(s)setSlots(s);
       if(b)setMyBookings(b);
       setLoading(false);
-    });
+    }
+    load();
   },[profile?.trainer_id,user.id]);
 
   async function book(slot,date){
@@ -676,11 +689,11 @@ function ClientBookingView({user,profile}){
   }
 
   function getNextDate(dayOfWeek){
-    const today=new Date();
-    const diff=(dayOfWeek-today.getDay()+7)%7||7;
-    const next=new Date(today);
-    next.setDate(today.getDate()+diff);
-    return next.toISOString().split("T")[0];
+    const t=new Date();
+    const diff=(Number(dayOfWeek)-t.getDay()+7)%7||7;
+    const next=new Date(t);
+    next.setDate(t.getDate()+diff);
+    return`${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,"0")}-${String(next.getDate()).padStart(2,"0")}`;
   }
 
   const activeBookings=myBookings.filter(b=>b.status==="confirmed");
@@ -756,6 +769,7 @@ function TrainerApp({user,profile,setProfile}){
   const[modal,setModal]=useState(null);
   const[editForm,setEditForm]=useState(null);
   const[selClient,setSelClient]=useState(null);
+  const[calendarKey,setCalendarKey]=useState(0);
   const[clientTab,setClientTab]=useState("info");
   const[sessDate,setSessDate]=useState(today());
   const[sessTime,setSessTime]=useState(nowTime());
@@ -1024,7 +1038,7 @@ function TrainerApp({user,profile,setProfile}){
           );
         })()}
 
-        {view==="calendar"&&(<><div style={S.sTitle}>📅 Calendar general</div>{clients.length===0?<div style={{textAlign:"center",padding:"48px 20px",color:MUTED}}><div style={{fontSize:42,marginBottom:10}}>📅</div><div style={{fontSize:14}}>Adaugă clienți pentru a vedea calendarul</div></div>:<GlobalCalendar clients={clients} onQuickAddSession={(date)=>{setModal({type:"quickSession",date:date||today()});}}/>}</>)}
+        {view==="calendar"&&(<><div style={S.sTitle}>📅 Calendar general</div>{clients.length===0?<div style={{textAlign:"center",padding:"48px 20px",color:MUTED}}><div style={{fontSize:42,marginBottom:10}}>📅</div><div style={{fontSize:14}}>Adaugă clienți pentru a vedea calendarul</div></div>:<GlobalCalendar key={calendarKey} clients={clients} onQuickAddSession={(date)=>{setModal({type:"quickSession",date:date||today()});}}/>}</>)}
 
         {view==="today"&&(
           <>
@@ -1152,6 +1166,7 @@ function TrainerApp({user,profile,setProfile}){
               if(c.id!==qClient)return c;
               return{...c,sessionsLeft:Math.max(0,(c.sessionsLeft||0)-1),history:[...(c.history||[]),{id:crypto.randomUUID(),type:"session",date:qDate,time:qTime,sessionPrice:c.sessionPrice||0,note:"Ședință completată"}]};
             }));
+            setCalendarKey(k=>k+1);
             setModal(null);
           }}
         />
