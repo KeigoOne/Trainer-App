@@ -72,21 +72,17 @@ async function syncToSupabaseRaw(prev,next,userId){
   const nm=Object.fromEntries(next.map(c=>[c.id,c]));
   for(const id of Object.keys(pm)){
     if(!nm[id]){
-      const{error}=await supabase.from("clients").delete().eq("id",id).eq("user_id",userId);
-      if(error)console.error("Sync delete error:",error.message);
+      await supabase.from("clients").delete().eq("id",id).eq("user_id",userId);
     }
   }
   for(const client of next){
     const p=pm[client.id];
     if(!p||JSON.stringify(p)!==JSON.stringify(client)){
-      const{error}=await supabase.from("clients").upsert({
+      await supabase.from("clients").upsert({
         id:client.id,
         user_id:userId,
-        data:client,
-        updated_at:new Date().toISOString()
+        data:client
       });
-      if(error)console.error("Sync upsert error for",client.name,":",error.message,error.code);
-      else console.log("Synced:",client.name,"history entries:",client.history?.length);
     }
   }
 }
@@ -1555,6 +1551,7 @@ function ClientApp({user,profile,setProfile,clientCard,refreshClientCard}){
 // ─── AUTH SCREEN ──────────────────────────────────────────────────────────────
 function AuthScreen({onAuth}){
   const[mode,setMode]=useState("login");
+  const[stayLoggedIn,setStayLoggedIn]=useState(true);
   const[installPrompt,setInstallPrompt]=useState(null);
   const[installed,setInstalled]=useState(false);
   useEffect(()=>{
@@ -1581,7 +1578,7 @@ function AuthScreen({onAuth}){
     setError("");setSuccess("");setLoading(true);
     try{
       if(mode==="login"){
-        const{error}=await supabase.auth.signInWithPassword({email,password});
+        const{error}=await supabase.auth.signInWithPassword({email,password,options:{persistSession:stayLoggedIn}});
         if(error)throw error;
         onAuth();
       } else {
@@ -1613,7 +1610,7 @@ function AuthScreen({onAuth}){
   const inputStyle={width:"100%",background:CARD2,border:`1px solid ${BORDER}`,borderRadius:10,padding:"12px 14px",color:TEXT,fontSize:16,outline:"none",boxSizing:"border-box",marginBottom:12,fontFamily:"'DM Sans',sans-serif"};
 
   return(
-    <div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"center",justifyContent:"center",padding:20,fontFamily:"'DM Sans',sans-serif"}}>
+    <div style={{minHeight:"100vh",background:BG,display:"flex",alignItems:"flex-start",justifyContent:"center",padding:"20px 20px",paddingTop:"max(40px, env(safe-area-inset-top))",fontFamily:"'DM Sans',sans-serif",overflowY:"auto"}}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
       <div style={{width:"100%",maxWidth:400}}>
         <div style={{textAlign:"center",marginBottom:32}}>
@@ -1658,6 +1655,14 @@ function AuthScreen({onAuth}){
           )}
           {mode==="register"&&role==="client"&&(
             <><label style={{fontSize:12,fontWeight:700,color:MUTED,display:"block",marginBottom:6,textTransform:"uppercase",letterSpacing:"0.5px"}}>🔑 Codul antrenorului</label><input style={{...inputStyle,textTransform:"uppercase",letterSpacing:"0.1em"}} placeholder="ex. AB12CD" value={trainerJoinCode} onChange={e=>setTrainerJoinCode(e.target.value)}/></>
+          )}
+          {mode==="login"&&(
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,cursor:"pointer"}} onClick={()=>setStayLoggedIn(p=>!p)}>
+              <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${stayLoggedIn?ACCENT:BORDER}`,background:stayLoggedIn?ACCENT:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.15s"}}>
+                {stayLoggedIn&&<span style={{color:"#000",fontSize:12,fontWeight:900,lineHeight:1}}>✓</span>}
+              </div>
+              <span style={{fontSize:13,color:MUTED,fontFamily:"'DM Sans',sans-serif",userSelect:"none"}}>Rămâi conectat</span>
+            </div>
           )}
           {error&&<div style={{background:`${ACCENT2}15`,border:`1px solid ${ACCENT2}40`,borderRadius:10,padding:"10px 14px",fontSize:13,color:ACCENT2,marginBottom:14}}>⚠ {error}</div>}
           {success&&<div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:10,padding:"10px 14px",fontSize:13,color:ACCENT,marginBottom:14}}>✓ {success}</div>}
