@@ -635,7 +635,7 @@ function TrainerBookingView({user}){
 }
 
 // Client: view and book slots
-function ClientBookingView({user,profile}){
+function ClientBookingView({user,trainerId}){
   const[slots,setSlots]=useState([]);
   const[myBookings,setMyBookings]=useState([]);
   const[loading,setLoading]=useState(true);
@@ -644,37 +644,25 @@ function ClientBookingView({user,profile}){
 
   useEffect(()=>{
     async function load(){
-      let trainerId=profile?.trainer_id;
-      if(!trainerId){
-        const{data:card}=await supabase.rpc("get_client_card");
-        if(card?.found&&card?.data?.user_id) trainerId=card.data.user_id;
-      }
-      if(!trainerId){
-        console.log("No trainer_id found for client");
-        setLoading(false);
-        return;
-      }
-      const[{data:s,error:sErr},{data:b,error:bErr}]=await Promise.all([
+      const[{data:s},{data:b}]=await Promise.all([
         supabase.from("time_slots").select("*").eq("trainer_id",trainerId).order("day_of_week").order("start_time"),
         supabase.from("bookings").select("*").eq("client_id",user.id)
       ]);
-      console.log("SLOTS:",s,"ERROR:",sErr);
-      console.log("BOOKINGS:",b,"ERROR:",bErr);
       if(s)setSlots(s);
       if(b)setMyBookings(b);
       setLoading(false);
     }
     load();
-  },[profile?.trainer_id,user.id]);
+  },[trainerId,user.id]);
 
   async function book(slot,date){
     // Check spots
     const{data:existing}=await supabase.from("bookings").select("id").eq("slot_id",slot.id).eq("booking_date",date).eq("status","confirmed");
     if(existing&&existing.length>=slot.max_bookings){setMsg("Nu mai sunt locuri disponibile pentru această dată.");return;}
-    const trainerId=profile?.trainer_id||slot.trainer_id;
+    const bookTrainerId=trainerId||slot.trainer_id;
     const{data,error}=await supabase.from("bookings").insert({
-      slot_id:slot.id,trainer_id:trainerId,client_id:user.id,
-      client_name:profile.name||user.email,booking_date:date,status:"confirmed",completed:false
+      slot_id:slot.id,trainer_id:bookTrainerId,client_id:user.id,
+      client_name:user.email,booking_date:date,status:"confirmed",completed:false
     }).select().single();
     if(!error&&data){setMyBookings(p=>[...p,data]);setBooking(null);setMsg("Rezervare confirmată! ✅");}
     else setMsg("Eroare la rezervare.");
@@ -1101,7 +1089,7 @@ function TrainerApp({user,profile,setProfile}){
         )}
 
         {view==="booking"&&<TrainerBookingView user={user}/>}
-        {view==="booking"&&<ClientBookingView user={user} profile={profile}/>}
+        {view==="booking"&&(profile?.trainer_id?<ClientBookingView user={user} trainerId={profile.trainer_id}/>:<div style={{color:MUTED,fontSize:14,padding:20,textAlign:"center"}}>Se încarcă datele antrenorului...</div>)}
         {view==="profile"&&<ProfileView user={user} profile={profile} setProfile={setProfile}/>}
       </div>
 
