@@ -149,13 +149,14 @@ function Drawer({open,onClose,items,onSelect,activeView,user,profile}){
 }
 
 // ─── MINI CALENDAR ────────────────────────────────────────────────────────────
-function MiniCalendar({sessionDates=[],paymentDates=[]}){
+function MiniCalendar({sessionDates=[],paymentDates=[],bookingDates=[]}){
   const now=new Date();
   const[vy,setVy]=useState(now.getFullYear());
   const[vm,setVm]=useState(now.getMonth());
   const dim=getDaysInMonth(vy,vm),fd=getFirstDayOfMonth(vy,vm),ts=today();
   const ss=new Set(sessionDates.filter(d=>{const[y,m]=d.split("-").map(Number);return y===vy&&m-1===vm;}).map(d=>parseInt(d.split("-")[2])));
   const ps=new Set(paymentDates.filter(d=>{const[y,m]=d.split("-").map(Number);return y===vy&&m-1===vm;}).map(d=>parseInt(d.split("-")[2])));
+  const bs=new Set(bookingDates.filter(d=>{if(!d)return false;const[y,m]=d.split("-").map(Number);return y===vy&&m-1===vm;}).map(d=>parseInt(d.split("-")[2])));
   const[ty,tm,td]=ts.split("-").map(Number);const today_d=ty===vy&&tm-1===vm?td:null;
   function prev(){if(vm===0){setVy(y=>y-1);setVm(11);}else setVm(m=>m-1);}
   function next(){if(vm===11){setVy(y=>y+1);setVm(0);}else setVm(m=>m+1);}
@@ -171,15 +172,16 @@ function MiniCalendar({sessionDates=[],paymentDates=[]}){
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
         {cells.map((day,i)=>{
           if(!day)return<div key={`e${i}`}/>;
-          const isSess=ss.has(day),isPay=ps.has(day),isToday=day===today_d;
-          return(<div key={day} style={{textAlign:"center",borderRadius:7,padding:"5px 1px",background:isSess?`${ACCENT}22`:isPay?"#A29BFE22":"transparent",border:isToday?`1.5px solid ${ACCENT}`:isSess?`1px solid ${ACCENT}50`:isPay?"1px solid #A29BFE50":"1px solid transparent"}}>
-            <div style={{fontSize:12,fontWeight:isSess||isPay?700:400,color:isSess?ACCENT:isPay?"#A29BFE":isToday?ACCENT:MUTED}}>{day}</div>
-            {(isSess||isPay)&&<div style={{width:4,height:4,borderRadius:"50%",background:isSess?ACCENT:"#A29BFE",margin:"1px auto 0"}}/>}
+          const isSess=ss.has(day),isPay=ps.has(day),isBook=bs.has(day),isToday=day===today_d;
+          return(<div key={day} style={{textAlign:"center",borderRadius:7,padding:"5px 1px",background:isSess?`${ACCENT}22`:isBook?"#FFB74D18":isPay?"#A29BFE22":"transparent",border:isToday?`1.5px solid ${ACCENT}`:isSess?`1px solid ${ACCENT}50`:isBook?"1px solid #FFB74D50":isPay?"1px solid #A29BFE50":"1px solid transparent"}}>
+            <div style={{fontSize:12,fontWeight:isSess||isPay||isBook?700:400,color:isSess?ACCENT:isBook?"#FFB74D":isPay?"#A29BFE":isToday?ACCENT:MUTED}}>{day}</div>
+            {(isSess||isPay||isBook)&&<div style={{width:4,height:4,borderRadius:"50%",background:isSess?ACCENT:isBook?"#FFB74D":"#A29BFE",margin:"1px auto 0"}}/>}
           </div>);
         })}
       </div>
-      <div style={{display:"flex",gap:12,marginTop:10,paddingTop:8,borderTop:`1px solid ${BORDER}`}}>
+      <div style={{display:"flex",gap:10,marginTop:10,paddingTop:8,borderTop:`1px solid ${BORDER}`,flexWrap:"wrap"}}>
         <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:MUTED}}><div style={{width:8,height:8,borderRadius:"50%",background:ACCENT}}/>Antrenament</div>
+        <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:MUTED}}><div style={{width:8,height:8,borderRadius:"50%",background:"#FFB74D"}}/>Rezervare</div>
         <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:MUTED}}><div style={{width:8,height:8,borderRadius:"50%",background:"#A29BFE"}}/>Plată</div>
       </div>
     </div>
@@ -187,7 +189,7 @@ function MiniCalendar({sessionDates=[],paymentDates=[]}){
 }
 
 // ─── GLOBAL CALENDAR ─────────────────────────────────────────────────────────
-function GlobalCalendar({clients,onQuickAddSession}){
+function GlobalCalendar({clients,bookings=[],onQuickAddSession}){
   const now=new Date();
   const[vy,setVy]=useState(now.getFullYear());
   const[vm,setVm]=useState(now.getMonth());
@@ -197,6 +199,15 @@ function GlobalCalendar({clients,onQuickAddSession}){
   clients.forEach((c,ci)=>{
     const color=CLIENT_COLORS[ci%CLIENT_COLORS.length];
     (c.history||[]).forEach(h=>{const[y,m,d]=h.date.split("-").map(Number);if(y===vy&&m-1===vm){if(!dayMap[d])dayMap[d]=[];dayMap[d].push({clientName:c.name,color,type:h.type,sessionPrice:c.sessionPrice,amount:h.amount,time:h.time,completed:h.completed});}});
+  });
+  // Add bookings from booking system
+  bookings.forEach(b=>{
+    if(!b.booking_date)return;
+    const[y,m,d]=b.booking_date.split("-").map(Number);
+    if(y===vy&&m-1===vm){
+      if(!dayMap[d])dayMap[d]=[];
+      dayMap[d].push({clientName:b.client_name,color:"#A29BFE",type:"booking",time:b.time_slots?.start_time||"",completed:false});
+    }
   });
   const[ty,tm,td]=ts.split("-").map(Number);const today_d=ty===vy&&tm-1===vm?td:null;
   function prev(){if(vm===0){setVy(y=>y-1);setVm(11);}else setVm(m=>m-1);}
@@ -224,7 +235,7 @@ function GlobalCalendar({clients,onQuickAddSession}){
             const events=dayMap[day]||[],isToday=day===today_d,isSel=day===selDay;
             return(<div key={day} onClick={()=>setSelDay(day===selDay?null:day)} style={{borderRadius:8,padding:"6px 2px 4px",cursor:events.length>0||isToday?"pointer":"default",background:isSel?`${ACCENT}20`:isToday?`${ACCENT}0D`:events.length>0?CARD:"transparent",border:isSel?`1.5px solid ${ACCENT}`:isToday?`1px solid ${ACCENT}60`:events.length>0?`1px solid ${BORDER}`:"1px solid transparent",transition:"all 0.1s"}}>
               <div style={{textAlign:"center",fontSize:12,fontWeight:events.length>0?700:400,color:isToday?ACCENT:events.length>0?TEXT:MUTED}}>{day}</div>
-              <div style={{display:"flex",justifyContent:"center",flexWrap:"wrap",gap:2,marginTop:3,minHeight:7}}>{events.slice(0,4).map((e,di)=><div key={di} style={{width:5,height:5,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.completed===false?"#FFB74D":e.color}}/>)}</div>
+              <div style={{display:"flex",justifyContent:"center",flexWrap:"wrap",gap:2,marginTop:3,minHeight:7}}>{events.slice(0,4).map((e,di)=><div key={di} style={{width:5,height:5,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.type==="booking"?"#A29BFE":e.completed===false?"#FFB74D":e.color}}/>)}</div>
             </div>);
           })}
         </div>
@@ -235,7 +246,7 @@ function GlobalCalendar({clients,onQuickAddSession}){
           {selEvents.length===0?<div style={{color:MUTED,fontSize:14}}>Nicio activitate în această zi</div>
             :selEvents.map((e,i)=>(
               <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 0",borderBottom:i<selEvents.length-1?`1px solid ${BORDER}`:"none"}}>
-                <div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:10,height:10,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.color,flexShrink:0}}/><div><div style={{fontSize:14,fontWeight:600}}>{e.clientName}</div><div style={{fontSize:11,color:MUTED}}>{e.type==="session"?(e.completed===false?"📅 Planificat":"🏋️ Antrenament"):"💳 Plată"}{e.time?` · ${e.time}`:""}</div></div></div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}><div style={{width:10,height:10,borderRadius:"50%",background:e.type==="payment"?"#A29BFE":e.color,flexShrink:0}}/><div><div style={{fontSize:14,fontWeight:600}}>{e.clientName}</div><div style={{fontSize:11,color:MUTED}}>{e.type==="session"?(e.completed===false?"📅 Planificat":"🏋️ Antrenament"):e.type==="booking"?"🗓 Rezervare":"💳 Plată"}{e.time?` · ${e.time}`:""}</div></div></div>
                 {e.type==="session"&&e.sessionPrice>0&&<span style={{fontSize:13,fontWeight:700,color:e.color}}>{e.sessionPrice} RON</span>}
                 {e.type==="payment"&&<span style={{fontSize:13,fontWeight:700,color:"#A29BFE"}}>{e.amount} RON</span>}
               </div>
@@ -751,6 +762,11 @@ function TrainerApp({user,profile,setProfile}){
   const[editForm,setEditForm]=useState(null);
   const[selClient,setSelClient]=useState(null);
   const[calendarKey,setCalendarKey]=useState(0);
+  const[calendarBookings,setCalendarBookings]=useState([]);
+  useEffect(()=>{
+    supabase.from("bookings").select("*,time_slots(start_time,end_time)").eq("trainer_id",user.id).eq("status","confirmed")
+      .then(({data})=>{ if(data) setCalendarBookings(data); });
+  },[user.id]);
   const[clientTab,setClientTab]=useState("info");
   const[sessDate,setSessDate]=useState(today());
   const[sessTime,setSessTime]=useState(nowTime());
@@ -1042,7 +1058,7 @@ function TrainerApp({user,profile,setProfile}){
           );
         })()}
 
-        {view==="calendar"&&(<><div style={S.sTitle}>📅 Calendar general</div>{clients.length===0?<div style={{textAlign:"center",padding:"48px 20px",color:MUTED}}><div style={{fontSize:42,marginBottom:10}}>📅</div><div style={{fontSize:14}}>Adaugă clienți pentru a vedea calendarul</div></div>:<GlobalCalendar key={calendarKey} clients={clients} onQuickAddSession={(date)=>{setModal({type:"quickSession",date:date||today()});}}/>}</>)}
+        {view==="calendar"&&(<><div style={S.sTitle}>📅 Calendar general</div>{clients.length===0?<div style={{textAlign:"center",padding:"48px 20px",color:MUTED}}><div style={{fontSize:42,marginBottom:10}}>📅</div><div style={{fontSize:14}}>Adaugă clienți pentru a vedea calendarul</div></div>:<GlobalCalendar key={calendarKey} clients={clients} bookings={calendarBookings} onQuickAddSession={(date)=>{setModal({type:"quickSession",date:date||today()});}}/>}</>)}
 
         {view==="today"&&(
           <>
@@ -1242,6 +1258,28 @@ function UnlinkedScreen({user,profile}){
   );
 }
 
+
+// ─── CLIENT CALENDAR VIEW ─────────────────────────────────────────────────────
+function ClientCalendarView({user,profile,sessionDates,paymentDates}){
+  const[bookingDates,setBookingDates]=useState([]);
+  useEffect(()=>{
+    supabase.from("bookings").select("booking_date,time_slots(start_time)").eq("client_id",user.id).eq("status","confirmed")
+      .then(({data})=>{ if(data) setBookingDates(data.map(b=>b.booking_date).filter(Boolean)); });
+  },[user.id]);
+  return(
+    <div>
+      <div style={S.sTitle}>📅 Prezențele tale</div>
+      <MiniCalendar sessionDates={sessionDates} paymentDates={paymentDates} bookingDates={bookingDates}/>
+      {bookingDates.length>0&&(
+        <div style={{...S.card,marginTop:12,background:"#A29BFE15",border:"1px solid #A29BFE40"}}>
+          <div style={{fontSize:12,color:"#A29BFE",fontWeight:700,marginBottom:6}}>🗓 Rezervări confirmate</div>
+          {bookingDates.map((d,i)=><div key={i} style={{fontSize:13,color:TEXT,padding:"3px 0"}}>{formatDate(d)}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── CLIENT APP ───────────────────────────────────────────────────────────────
 function ClientApp({user,profile,setProfile,clientCard,refreshClientCard}){
   const[view,setView]=useState("welcome");
@@ -1337,7 +1375,7 @@ function ClientApp({user,profile,setProfile,clientCard,refreshClientCard}){
             </div>
           </>
         )}
-        {view==="calendar"&&(<><div style={S.sTitle}>📅 Prezențele tale</div><MiniCalendar sessionDates={sessionDates} paymentDates={paymentDates}/></>)}
+        {view==="calendar"&&(<ClientCalendarView user={user} profile={profile} sessionDates={sessionDates} paymentDates={paymentDates}/>)}
         {view==="booking"&&(profile?.trainer_id?<ClientBookingView user={user} trainerId={profile.trainer_id}/>:<div style={{color:MUTED,fontSize:14,padding:20,textAlign:"center"}}>Contul tău nu este încă legat de un antrenor.</div>)}
         {view==="measures"&&<MeasurementsSection clientId={clientCard?.id}/>}
         {view==="photos"&&<ProgressPhotosSection clientId={clientCard?.id}/>}
