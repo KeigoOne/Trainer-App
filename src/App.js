@@ -1083,10 +1083,12 @@ function TrainerApp({user,profile,setProfile}){
           </>
         )}
 
-        {view==="booking"&&(profile?.role==="client"
-          ?(profile?.trainer_id?<ClientBookingView user={user} trainerId={profile.trainer_id}/>:<div style={{color:MUTED,fontSize:14,padding:20,textAlign:"center"}}>Contul tău nu este încă legat de un antrenor.</div>)
-          :<TrainerBookingView user={user}/>
-        )}
+        {view==="booking"&&(()=>{
+          console.log("BOOKING RENDER - role:",profile?.role,"trainer_id:",profile?.trainer_id);
+          return profile?.role==="client"
+            ?(profile?.trainer_id?<ClientBookingView user={user} trainerId={profile.trainer_id}/>:<div style={{color:MUTED,fontSize:14,padding:20,textAlign:"center"}}>Contul tău nu este încă legat de un antrenor.</div>)
+            :<TrainerBookingView user={user}/>;
+        })()}
         {view==="profile"&&<ProfileView user={user} profile={profile} setProfile={setProfile}/>}
       </div>
 
@@ -1499,7 +1501,8 @@ export default function Root(){
   useEffect(()=>{
     if(!user)return;
     setProfileLoading(true);
-    supabase.from("profiles").select("*").eq("id",user.id).single().then(async({data:prof})=>{
+    supabase.from("profiles").select("*").eq("id",user.id).single().then(async({data:prof,error:profErr})=>{
+      console.log("ROOT PROFILE:",JSON.stringify(prof),"ERR:",profErr?.message);
       setProfile(prof);
       if(prof?.role==="client"){
         await refreshClientCard();
