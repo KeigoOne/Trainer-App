@@ -1603,13 +1603,8 @@ function AuthScreen({onAuth}){
         // Profile is created automatically by DB trigger on auth.users insert
         const{data,error}=await supabase.auth.signUp({email,password,options:{data:{name,role,trainer_id:trainerId}}});
         if(error)throw error;
-        // Small delay to let the trigger create the profile first
-        await new Promise(r=>setTimeout(r,1000));
-        if(role==="client"&&trainerId){
-          await supabase.from("clients").update({client_user_id:data.user.id}).eq("client_email",email).eq("user_id",trainerId);
-          // Update trainer_id in profile now that it exists
-          await supabase.from("profiles").update({trainer_id:trainerId}).eq("id",data.user.id);
-        }
+        // Note: client card linking happens automatically on first login
+        // via get_client_card RPC, after email is confirmed
         setSuccess(role==="trainer"?"Cont antrenor creat! Verifică emailul pentru confirmare.":"Cont client creat! Verifică emailul pentru confirmare.");
       }
     }catch(e){setError(e.message||"A apărut o eroare.");}
@@ -1702,8 +1697,13 @@ export default function Root(){
     if(!user)return;
     setProfileLoading(true);
     supabase.from("profiles").select("*").eq("id",user.id).single().then(async({data:prof,error:profErr})=>{
+      if(profErr||!prof){
+        // Profile fetch failed — force logout to prevent stuck loading screen
+        setProfileLoading(false);
+        return;
+      }
       setProfile(prof);
-      if(prof?.role==="client"){
+      if(prof.role==="client"){
         await refreshClientCard();
       }
       setProfileLoading(false);
