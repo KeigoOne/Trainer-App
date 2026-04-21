@@ -519,18 +519,15 @@ function ClientBookingsSection({clientId, trainerId}){
 
   useEffect(()=>{
     async function load(){
-      console.log("ClientBookingsSection - clientId:",clientId,"trainerId:",trainerId);
-      const{data:cData,error:cErr}=await supabase.from("clients").select("client_user_id").eq("id",clientId).single();
-      console.log("Step1 - client row:",cData,"error:",cErr?.message);
+      const{data:cData}=await supabase.from("clients").select("client_user_id").eq("id",clientId).single();
       if(!cData?.client_user_id){setLoading(false);return;}
       setClientUserId(cData.client_user_id);
-      const{data:b,error:bErr}=await supabase.from("bookings")
+      const{data:b}=await supabase.from("bookings")
         .select("*,time_slots(start_time,end_time,day_of_week,repeat,specific_date)")
         .eq("client_id",cData.client_user_id)
         .eq("trainer_id",trainerId)
         .eq("status","confirmed")
         .order("booking_date",{ascending:true});
-      console.log("Step2 - bookings:",b?.length,"error:",bErr?.message);
       if(b)setBookings(b);
       setLoading(false);
     }
@@ -722,43 +719,35 @@ function TrainerBookingView({user}){
 function ClientBookingView({user,trainerId,clientName}){
   const[slots,setSlots]=useState([]);
   const[myBookings,setMyBookings]=useState([]);
+  const[slotCounts,setSlotCounts]=useState({}); // {slotId_date: count}
   const[loading,setLoading]=useState(true);
   const[booking,setBooking]=useState(null);
+  const[bookingDate,setBookingDate]=useState("");
   const[msg,setMsg]=useState("");
 
   useEffect(()=>{
     async function load(){
-      const[{data:s},{data:b}]=await Promise.all([
+      const[{data:s},{data:b},{data:counts}]=await Promise.all([
         supabase.from("time_slots").select("*").eq("trainer_id",trainerId).order("day_of_week").order("start_time"),
-        supabase.from("bookings").select("*").eq("client_id",user.id)
+        supabase.from("bookings").select("*").eq("client_id",user.id).eq("status","confirmed"),
+        // Get all confirmed bookings per slot+date for this trainer
+        supabase.from("bookings").select("slot_id,booking_date").eq("trainer_id",trainerId).eq("status","confirmed")
       ]);
       if(s)setSlots(s);
       if(b)setMyBookings(b);
+      // Build count map: {slotId_date: count}
+      if(counts){
+        const map={};
+        counts.forEach(c=>{
+          const key=`${c.slot_id}_${c.booking_date}`;
+          map[key]=(map[key]||0)+1;
+        });
+        setSlotCounts(map);
+      }
       setLoading(false);
     }
     load();
   },[trainerId,user.id]);
-
-  async function book(slot,date){
-    // Check spots
-    const{data:existing}=await supabase.from("bookings").select("id").eq("slot_id",slot.id).eq("booking_date",date).eq("status","confirmed");
-    if(existing&&existing.length>=slot.max_bookings){setMsg("Nu mai sunt locuri disponibile pentru această dată.");return;}
-    const bookTrainerId=trainerId||slot.trainer_id;
-    const{data,error}=await supabase.from("bookings").insert({
-      slot_id:slot.id,trainer_id:bookTrainerId,client_id:user.id,
-      client_name:clientName||user.email,booking_date:date,status:"confirmed"
-    }).select().single();
-    if(!error&&data){setMyBookings(p=>[...p,data]);setBooking(null);setMsg("Rezervare confirmată! ✅");}
-    else setMsg("Eroare: "+(error?.message||"necunoscută"));
-    setTimeout(()=>setMsg(""),3000);
-  }
-
-  async function cancelBooking(id){
-    await supabase.from("bookings").update({status:"cancelled"}).eq("id",id);
-    setMyBookings(p=>p.filter(b=>b.id!==id));
-    setMsg("Rezervare anulată.");
-    setTimeout(()=>setMsg(""),3000);
-  }
 
   function getNextDate(dayOfWeek){
     const t=new Date();
@@ -768,20 +757,76 @@ function ClientBookingView({user,trainerId,clientName}){
     return`${next.getFullYear()}-${String(next.getMonth()+1).padStart(2,"0")}-${String(next.getDate()).padStart(2,"0")}`;
   }
 
+  function spotsLeftForDate(slot,date){
+    if(!date)return slot.max_bookings;
+    const count=slotCounts[`${slot.id}_${date}`]||0;
+    return slot.max_bookings-count;
+  }
+
+  async function book(){
+    const date=booking.repeat?bookingDate:booking.specific_date;
+    if(!date){setMsg("Alege o dată.");return;}
+    // Frontend check
+    if(spotsLeftForDate(booking,date)<=0){setMsg("Nu mai sunt locuri disponibile pentru această dată.");return;}
+    // Already booked check
+    const alreadyBooked=myBookings.some(b=>b.slot_id===booking.id&&b.booking_date===date);
+    if(alreadyBooked){setMsg("Ai deja o rezervare pentru această dată.");return;}
+    const{data,error}=await supabase.from("bookings").insert({
+      slot_id:booking.id,
+      trainer_id:booking.trainer_id,
+      client_id:user.id,
+      client_name:clientName||user.email,
+      booking_date:date,
+      status:"confirmed"
+    }).select().single();
+    if(!error&&data){
+      setMyBookings(p=>[...p,data]);
+      // Update local count
+      setSlotCounts(prev=>{
+        const key=`${booking.id}_${date}`;
+        return{...prev,[key]:(prev[key]||0)+1};
+      });
+      setBooking(null);
+      setBookingDate("");
+      setMsg("Rezervare confirmată! ✅");
+    } else {
+      // DB trigger may have blocked it
+      setMsg(error?.message?.includes("complet")?"Slot complet pentru această dată.":"Eroare: "+(error?.message||"necunoscută"));
+    }
+    setTimeout(()=>setMsg(""),4000);
+  }
+
+  async function cancelBooking(id){
+    const b=myBookings.find(x=>x.id===id);
+    await supabase.from("bookings").update({status:"cancelled"}).eq("id",id);
+    setMyBookings(p=>p.filter(x=>x.id!==id));
+    if(b){
+      setSlotCounts(prev=>{
+        const key=`${b.slot_id}_${b.booking_date}`;
+        return{...prev,[key]:Math.max(0,(prev[key]||1)-1)};
+      });
+    }
+    setMsg("Rezervare anulată.");
+    setTimeout(()=>setMsg(""),3000);
+  }
+
   const activeBookings=myBookings.filter(b=>b.status==="confirmed");
 
   return(
     <div>
       <div style={S.sTitle}>🗓 Rezervări</div>
-      {msg&&<div style={{background:`${ACCENT}15`,border:`1px solid ${ACCENT}40`,borderRadius:10,padding:"10px 14px",fontSize:13,color:ACCENT,marginBottom:12}}>{msg}</div>}
+      {msg&&<div style={{background:msg.includes("✅")?`${ACCENT}15`:`${ACCENT2}15`,border:`1px solid ${msg.includes("✅")?ACCENT:ACCENT2}40`,borderRadius:10,padding:"10px 14px",fontSize:13,color:msg.includes("✅")?ACCENT:ACCENT2,marginBottom:12}}>{msg}</div>}
 
       {activeBookings.length>0&&(
         <>
           <div style={{fontSize:11,fontWeight:700,color:MUTED,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>Rezervările mele</div>
           {activeBookings.map(b=>(
-            <div key={b.id} style={{...S.card,padding:"12px 14px",marginBottom:8,border:`1px solid ${ACCENT}40`}}>
+            <div key={b.id} style={{...S.card,padding:"12px 14px",marginBottom:8,border:`1px solid ${COLOR_BOOKING}40`}}>
               <div style={S.sb}>
-                <div><div style={{fontSize:14,fontWeight:700,color:ACCENT}}>{b.booking_date}</div><div style={{fontSize:12,color:MUTED}}>Confirmat</div></div>
+                <div>
+                  <div style={{fontSize:14,fontWeight:700,color:COLOR_BOOKING}}>{b.booking_date}</div>
+                  <div style={{fontSize:12,color:MUTED}}>Confirmat</div>
+                </div>
                 <button style={S.btn("danger")} onClick={()=>cancelBooking(b.id)}>Anulează</button>
               </div>
             </div>
@@ -793,38 +838,63 @@ function ClientBookingView({user,trainerId,clientName}){
       <div style={{fontSize:11,fontWeight:700,color:MUTED,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.5px"}}>Sloturi disponibile</div>
       {loading?<div style={{color:MUTED,fontSize:13}}>Se încarcă...</div>:
         slots.length===0?<div style={{color:MUTED,fontSize:13}}>Niciun slot disponibil momentan</div>:
-        slots.map(slot=>(
-          <div key={slot.id} style={S.card}>
-            <div style={S.sb}>
-              <div>
-                <div style={{fontSize:14,fontWeight:700}}>{slot.repeat?DAYS_RO[slot.day_of_week]:slot.specific_date} · {slot.start_time}–{slot.end_time}</div>
-                <div style={{fontSize:12,color:MUTED,marginTop:2}}>{slot.repeat?"Săptămânal":""} · {slot.max_bookings} {slot.max_bookings===1?"loc":"locuri"}</div>
+        slots.map(slot=>{
+          // For recurring slots show next occurrence spots; for one-time show that date's spots
+          const previewDate=slot.repeat?getNextDate(slot.day_of_week):slot.specific_date;
+          const spotsLeft=spotsLeftForDate(slot,previewDate);
+          const isFull=spotsLeft<=0;
+          return(
+            <div key={slot.id} style={{...S.card,marginBottom:8,opacity:isFull?0.6:1}}>
+              <div style={S.sb}>
+                <div>
+                  <div style={{fontSize:14,fontWeight:700}}>{slot.repeat?DAYS_RO[slot.day_of_week]:slot.specific_date} · {slot.start_time}–{slot.end_time}</div>
+                  <div style={{fontSize:12,color:isFull?ACCENT2:ACCENT,marginTop:2,fontWeight:600}}>
+                    {isFull?"Complet":spotsLeft===1?"1 loc disponibil":`${spotsLeft} locuri disponibile`}
+                  </div>
+                </div>
+                <button
+                  style={{...S.btn(isFull?"ghost":"primary"),opacity:isFull?0.5:1}}
+                  disabled={isFull}
+                  onClick={()=>{setBooking(slot);setBookingDate(previewDate);}}
+                >
+                  {isFull?"Complet":"Rezervă"}
+                </button>
               </div>
-              <button style={S.btn("primary")} onClick={()=>setBooking(slot)}>Rezervă</button>
             </div>
-          </div>
-        ))
+          );
+        })
       }
 
       {booking&&(
-        <div style={S.modal} onClick={()=>setBooking(null)}>
+        <div style={S.modal} onClick={()=>{setBooking(null);setBookingDate("");}}>
           <div style={S.modalBox} onClick={e=>e.stopPropagation()}>
             <div style={{fontSize:18,fontWeight:800,marginBottom:6}}>🗓 Confirmă rezervarea</div>
             <div style={{fontSize:13,color:MUTED,marginBottom:16}}>{booking.start_time}–{booking.end_time} · {booking.repeat?DAYS_RO[booking.day_of_week]:booking.specific_date}</div>
             {booking.repeat&&(
-              <><label style={S.label}>Alege data</label>
-              <input type="date" style={{...S.input,marginBottom:18,colorScheme:"dark"}}
-                defaultValue={getNextDate(booking.day_of_week)}
-                min={new Date().toISOString().split("T")[0]}
-                id="booking-date-input"
-              /></>
+              <>
+                <label style={S.label}>Alege data</label>
+                <input
+                  type="date"
+                  style={{...S.input,marginBottom:8,colorScheme:"dark"}}
+                  value={bookingDate}
+                  min={new Date().toISOString().split("T")[0]}
+                  onChange={e=>setBookingDate(e.target.value)}
+                />
+                {bookingDate&&(
+                  <div style={{fontSize:12,color:spotsLeftForDate(booking,bookingDate)<=0?ACCENT2:ACCENT,marginBottom:14,fontWeight:600}}>
+                    {spotsLeftForDate(booking,bookingDate)<=0?"Complet pentru această dată":
+                    `${spotsLeftForDate(booking,bookingDate)} loc${spotsLeftForDate(booking,bookingDate)===1?"":"uri"} disponibil${spotsLeftForDate(booking,bookingDate)===1?"":"e"}`}
+                  </div>
+                )}
+              </>
             )}
             <div style={{display:"flex",gap:8}}>
-              <button style={{...S.btn(),flex:1}} onClick={()=>setBooking(null)}>Anulează</button>
-              <button style={{...S.btn("primary"),flex:2}} onClick={()=>{
-                const dateVal=booking.repeat?document.getElementById("booking-date-input")?.value:booking.specific_date;
-                if(dateVal)book(booking,dateVal);
-              }}>✅ Confirmă</button>
+              <button style={{...S.btn(),flex:1}} onClick={()=>{setBooking(null);setBookingDate("");}}>Anulează</button>
+              <button
+                style={{...S.btn("primary"),flex:2}}
+                disabled={booking.repeat&&(!bookingDate||spotsLeftForDate(booking,bookingDate)<=0)}
+                onClick={book}
+              >✅ Confirmă</button>
             </div>
           </div>
         </div>
