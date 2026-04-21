@@ -80,8 +80,8 @@ async function syncToSupabaseRaw(prev,next,userId){
     const p=pm[client.id];
     if(!p||JSON.stringify(p)!==JSON.stringify(client)){
       const{error}=await supabase.from("clients").upsert({
-        id:client.id,user_id:userId,
-        client_email:client.email||null,
+        id:client.id,
+        user_id:userId,
         data:client,
         updated_at:new Date().toISOString()
       });
